@@ -6,7 +6,7 @@ Identity Workspace — mobile-first приложение для личной п�
 
 ## Скриншоты
 
-![Identity Workspace showcase](./docs/screenshots/identity-workspace-readme-collage-hero.png)
+![Identity Workspace showcase](docs/screenshots/identity-workspace-readme-collage-hero.jpg)
 
 ## Возможности
 
