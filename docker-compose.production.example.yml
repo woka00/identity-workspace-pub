@@ -1,0 +1,55 @@
+# Generic example only. Set PUBLIC_URL to your HTTPS origin and create each
+# referenced file under ./secrets with mode 600 before using this overlay.
+services:
+  db:
+    environment:
+      POSTGRES_PASSWORD: ""
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+
+  app:
+    environment:
+      APP_ENV: production
+      DATABASE_URL: ""
+      DATABASE_URL_FILE: /run/secrets/database_url
+      PUBLIC_URL: ${PUBLIC_URL:?set PUBLIC_URL, for example https://identity.example.com}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      TRUST_PROXY: "true"
+      RUN_MIGRATIONS: ${RUN_MIGRATIONS:-false}
+      DATA_ENCRYPTION_KEY: ""
+      DATA_ENCRYPTION_KEY_FILE: /run/secrets/data_encryption_key
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-https://identity.example.com}
+      FATSECRET_CONSUMER_KEY: ""
+      FATSECRET_CONSUMER_KEY_FILE: /run/secrets/fatsecret_consumer_key
+      FATSECRET_CONSUMER_SECRET: ""
+      FATSECRET_CONSUMER_SECRET_FILE: /run/secrets/fatsecret_consumer_secret
+      FATSECRET_CALLBACK_URL: ${FATSECRET_CALLBACK_URL:-}
+      TICKTICK_CLIENT_ID: ""
+      TICKTICK_CLIENT_ID_FILE: /run/secrets/ticktick_client_id
+      TICKTICK_CLIENT_SECRET: ""
+      TICKTICK_CLIENT_SECRET_FILE: /run/secrets/ticktick_client_secret
+      TICKTICK_CALLBACK_URL: ${TICKTICK_CALLBACK_URL:-}
+    secrets:
+      - database_url
+      - data_encryption_key
+      - fatsecret_consumer_key
+      - fatsecret_consumer_secret
+      - ticktick_client_id
+      - ticktick_client_secret
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
+  database_url:
+    file: ./secrets/database_url
+  data_encryption_key:
+    file: ./secrets/data_encryption_key
+  fatsecret_consumer_key:
+    file: ./secrets/fatsecret_consumer_key
+  fatsecret_consumer_secret:
+    file: ./secrets/fatsecret_consumer_secret
+  ticktick_client_id:
+    file: ./secrets/ticktick_client_id
+  ticktick_client_secret:
+    file: ./secrets/ticktick_client_secret

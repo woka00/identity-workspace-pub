@@ -1,0 +1,17 @@
+-- Отдельная миграция удаления RPG-данных. Таблица goals и профиль сохраняются.
+DROP TABLE IF EXISTS completions;
+DROP TABLE IF EXISTS day_summaries;
+DROP TABLE IF EXISTS level_history;
+
+ALTER TABLE state DROP COLUMN IF EXISTS level;
+ALTER TABLE state DROP COLUMN IF EXISTS xp;
+ALTER TABLE state DROP COLUMN IF EXISTS streak;
+ALTER TABLE state DROP COLUMN IF EXISTS shields;
+ALTER TABLE state DROP COLUMN IF EXISTS str;
+ALTER TABLE state DROP COLUMN IF EXISTS com;
+ALTER TABLE state DROP COLUMN IF EXISTS knw;
+ALTER TABLE state DROP COLUMN IF EXISTS prg;
+ALTER TABLE state DROP COLUMN IF EXISTS hlt;
+ALTER TABLE state DROP COLUMN IF EXISTS current_day;
+ALTER TABLE state DROP COLUMN IF EXISTS quest_of_day;
+ALTER TABLE state DROP COLUMN IF EXISTS shields_month;

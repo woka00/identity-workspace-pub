@@ -1,0 +1,52 @@
+# Environment and credentials
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+
+# Data, backups and user-generated content
+backups/
+uploads/
+*.dump
+*.backup
+*.bak
+*.sql.gz
+
+# Dependencies and build output
+**/node_modules/
+**/dist/
+**/coverage/
+**/.cache/
+*.tsbuildinfo
+backend/identity-workspace-server
+
+# Logs and temporary files
+logs/
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.tmp/
+tmp/
+
+# Archives and generated reports
+*.zip
+*.tar
+*.tgz
+SECURITY_TEST_RESULTS/
+
+# Editors and operating systems
+.idea/
+.vscode/
+.fleet/
+.DS_Store
+Thumbs.db
+Desktop.ini

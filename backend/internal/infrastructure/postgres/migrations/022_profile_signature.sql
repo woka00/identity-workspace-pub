@@ -1,0 +1,2 @@
+ALTER TABLE user_profiles
+    ADD COLUMN IF NOT EXISTS signature TEXT NOT NULL DEFAULT '';

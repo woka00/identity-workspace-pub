@@ -1,0 +1,16 @@
+{
+  "name": "identity workspace",
+  "short_name": "identity workspace",
+  "description": "Мобильный менеджер задач, проектов и портфолио-визитка.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f5f5f2",
+  "theme_color": "#f5f5f2",
+  "lang": "ru",
+  "icons": [
+    { "src": "/identity-workspace-icon-192-v2.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/identity-workspace-icon-512-v2.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
