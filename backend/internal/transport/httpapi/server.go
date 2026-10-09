@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,40 +17,48 @@ import (
 	"strings"
 	"time"
 
-	"identity-workspace/internal/application"
-	"identity-workspace/internal/domain"
+	"avatar-id/internal/application"
+	"avatar-id/internal/domain"
 )
 
 type Config struct {
 	StaticDir            string
 	CORSOrigin           string
 	FatSecretCallbackURL string
-	TickTickCallbackURL  string
 	PublicURL            string
 	Production           bool
 	TrustProxy           bool
 	SecureCookies        bool
+	Logs                 LogSource
 }
 
 type Server struct {
-	service           *application.Service
-	config            Config
-	loginLimiter      *loginRateLimiter
-	loginSlots        chan struct{}
-	tickTickSyncGuard *userActionGuard
-	publicOrigin      string
-	publicHost        string
+	registrationGuard     *registrationRateGuard
+	registrationMailSlots chan struct{}
+	service               *application.Service
+	config                Config
+	loginLimiter          *loginRateLimiter
+	loginSlots            chan struct{}
+	attachmentUploadSlots chan struct{}
+	publicOrigin          string
+	publicHost            string
+	logs                  LogSource
 }
 
 func New(service *application.Service, config Config) http.Handler {
 	server := &Server{
-		service:           service,
-		config:            config,
-		loginLimiter:      newLoginRateLimiter(),
-		tickTickSyncGuard: newUserActionGuard(15 * time.Second),
+		registrationGuard:     &registrationRateGuard{limiter: newLoginRateLimiter()},
+		registrationMailSlots: make(chan struct{}, 2),
+		service:               service,
+		config:                config,
+		loginLimiter:          newLoginRateLimiter(),
+		logs:                  config.Logs,
 		// Password hashing is deliberately expensive. Bound concurrent hashes so
 		// a distributed login flood cannot exhaust all CPU and starve the API.
 		loginSlots: make(chan struct{}, 4),
+		// A 50 MB upload is intentionally supported. Bound concurrent in-memory
+		// copies so a few parallel uploads cannot exhaust a small VPS.
+		attachmentUploadSlots: make(chan struct{}, 2),
 	}
 	if parsed, err := url.Parse(strings.TrimSpace(config.PublicURL)); err == nil && parsed.Scheme != "" && parsed.Host != "" {
 		server.publicOrigin = parsed.Scheme + "://" + parsed.Host
@@ -70,9 +79,13 @@ func New(service *application.Service, config Config) http.Handler {
 
 func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /healthz", s.health)
+	mux.HandleFunc("GET /readyz", s.ready)
 	mux.HandleFunc("GET /api/auth/session", s.authSession)
 	mux.HandleFunc("POST /api/auth/login", s.authLogin)
 	mux.HandleFunc("POST /api/auth/logout", s.authLogout)
+	mux.HandleFunc("GET /api/auth/registration", s.registrationConfig)
+	mux.HandleFunc("POST /api/auth/registration/request", s.registrationRequest)
+	mux.HandleFunc("POST /api/auth/registration/complete", s.registrationComplete)
 
 	mux.HandleFunc("GET /api/state", s.getState)
 
@@ -81,12 +94,31 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/integrations/fatsecret/callback", s.fatSecretCallback)
 	mux.HandleFunc("DELETE /api/integrations/fatsecret", s.fatSecretDisconnect)
 	mux.HandleFunc("GET /api/integrations/fatsecret/nutrition", s.fatSecretNutrition)
-
-	mux.HandleFunc("GET /api/integrations/ticktick/status", s.tickTickStatus)
-	mux.HandleFunc("POST /api/integrations/ticktick/connect", s.tickTickConnect)
-	mux.HandleFunc("GET /api/integrations/ticktick/callback", s.tickTickCallback)
-	mux.HandleFunc("DELETE /api/integrations/ticktick", s.tickTickDisconnect)
-	mux.HandleFunc("POST /api/integrations/ticktick/sync", s.tickTickSync)
+	mux.HandleFunc("GET /api/integrations/fatsecret/foods/search", s.fatSecretFoodSearch)
+	mux.HandleFunc("GET /api/integrations/fatsecret/foods/recent", s.fatSecretRecentFoods)
+	mux.HandleFunc("GET /api/integrations/fatsecret/foods/barcode/{barcode}", s.fatSecretBarcodeFood)
+	mux.HandleFunc("GET /api/integrations/fatsecret/foods/{id}", s.fatSecretFood)
+	mux.HandleFunc("POST /api/integrations/fatsecret/entries", s.fatSecretCreateEntry)
+	mux.HandleFunc("PUT /api/integrations/fatsecret/entries/{id}", s.fatSecretUpdateEntry)
+	mux.HandleFunc("DELETE /api/integrations/fatsecret/entries/{id}", s.fatSecretDeleteEntry)
+	mux.HandleFunc("GET /api/foods/search", s.foodSearch)
+	mux.HandleFunc("GET /api/foods/recent", s.recentFoods)
+	mux.HandleFunc("GET /api/foods/candidates", s.foodCandidates)
+	mux.HandleFunc("GET /api/foods/barcode", s.foodBarcode)
+	mux.HandleFunc("GET /api/foods/barcode/{barcode}", s.foodBarcode)
+	mux.HandleFunc("POST /api/foods/barcode-links", s.linkFoodBarcode)
+	mux.HandleFunc("GET /api/foods/{id}", s.foodCatalogItem)
+	mux.HandleFunc("DELETE /api/foods/{id}", s.deleteFoodCatalogItem)
+	mux.HandleFunc("POST /api/foods", s.createFoodCatalogItem)
+	mux.HandleFunc("GET /api/admin/foods", s.adminFoodCatalog)
+	mux.HandleFunc("GET /api/admin/logs", s.adminLogs)
+	mux.HandleFunc("PUT /api/admin/foods/{id}", s.updateUserFoodReview)
+	mux.HandleFunc("DELETE /api/admin/foods/{id}", s.rejectUserFood)
+	mux.HandleFunc("POST /api/admin/foods/{id}/promote", s.promoteUserFood)
+	mux.HandleFunc("GET /api/nutrition/local", s.localNutrition)
+	mux.HandleFunc("POST /api/nutrition/local/entries", s.createLocalNutritionEntry)
+	mux.HandleFunc("PUT /api/nutrition/local/entries/{id}", s.updateLocalNutritionEntry)
+	mux.HandleFunc("DELETE /api/nutrition/local/entries/{id}", s.deleteLocalNutritionEntry)
 
 	mux.HandleFunc("GET /api/trackers", s.getTrackers)
 	mux.HandleFunc("PUT /api/trackers/weight/{date}", s.putWeight)
@@ -96,9 +128,21 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/trackers/custom/{id}", s.updateCustomTracker)
 	mux.HandleFunc("POST /api/trackers/custom/{id}/step", s.stepCustomTracker)
 	mux.HandleFunc("DELETE /api/trackers/custom/{id}", s.deleteCustomTracker)
+	mux.HandleFunc("GET /api/trackers/github", s.getGitHubTracker)
+	mux.HandleFunc("PUT /api/trackers/github", s.putGitHubTracker)
+	mux.HandleFunc("DELETE /api/trackers/github", s.deleteGitHubTracker)
 	mux.HandleFunc("GET /api/trackers/reminders", s.getTrackerReminders)
 	mux.HandleFunc("PUT /api/trackers/reminders", s.putTrackerReminder)
 	mux.HandleFunc("DELETE /api/trackers/reminders", s.deleteTrackerReminder)
+	mux.HandleFunc("GET /api/time-tracker", s.getTimeTracker)
+	mux.HandleFunc("POST /api/time-tracker/activities", s.createTimeActivity)
+	mux.HandleFunc("PUT /api/time-tracker/activities/{id}", s.updateTimeActivity)
+	mux.HandleFunc("DELETE /api/time-tracker/activities/{id}", s.deleteTimeActivity)
+	mux.HandleFunc("POST /api/time-tracker/activities/{id}/start", s.startTimeActivity)
+	mux.HandleFunc("POST /api/time-tracker/pause", s.pauseTimeActivity)
+	mux.HandleFunc("POST /api/time-tracker/finish", s.stopTimeActivity)
+	mux.HandleFunc("GET /api/time-tracker/statistics", s.getTimeStatistics)
+	mux.HandleFunc("GET /api/time-tracker/statistics/activities/{id}", s.getTimeActivityStatistics)
 
 	mux.HandleFunc("GET /api/task-categories", s.getTaskCategories)
 	mux.HandleFunc("POST /api/task-categories", s.createTaskCategory)
@@ -111,6 +155,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/tasks", s.getTasks)
 	mux.HandleFunc("POST /api/tasks", s.createTask)
 	mux.HandleFunc("PUT /api/tasks/{id}", s.updateTask)
+	mux.HandleFunc("PUT /api/tasks/order", s.swapTaskOrder)
 	mux.HandleFunc("DELETE /api/tasks/{id}", s.deleteTask)
 	mux.HandleFunc("POST /api/tasks/{id}/complete", s.completeTask)
 	mux.HandleFunc("DELETE /api/tasks/{id}/complete", s.uncompleteTask)
@@ -122,15 +167,52 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/goals/{id}", s.updateGoal)
 	mux.HandleFunc("DELETE /api/goals/{id}", s.deleteGoal)
 	mux.HandleFunc("GET /api/portfolio", s.getPortfolio)
+	mux.HandleFunc("GET /api/work/projects", s.getWorkProjects)
+	mux.HandleFunc("POST /api/work/projects", s.createWorkProject)
+	mux.HandleFunc("GET /api/work/projects/{id}", s.getWorkProject)
+	mux.HandleFunc("GET /api/work/projects/{id}/core", s.getWorkProjectCore)
+	mux.HandleFunc("GET /api/work/projects/{id}/revision", s.getWorkProjectRevision)
+	mux.HandleFunc("GET /api/work/projects/{id}/resources", s.getWorkProjectResources)
+	mux.HandleFunc("GET /api/work/projects/{id}/resource-summary", s.getWorkProjectResourceSummary)
+	mux.HandleFunc("PUT /api/work/projects/{id}", s.updateWorkProject)
+	mux.HandleFunc("DELETE /api/work/projects/{id}", s.deleteWorkProject)
+	mux.HandleFunc("POST /api/work/projects/{id}/sections", s.createWorkSection)
+	mux.HandleFunc("PUT /api/work/sections/{id}", s.updateWorkSection)
+	mux.HandleFunc("PUT /api/work/sections/{id}/completion-target", s.updateWorkSectionCompletion)
+	mux.HandleFunc("DELETE /api/work/sections/{id}", s.deleteWorkSection)
+	mux.HandleFunc("POST /api/work/projects/{id}/tasks", s.createWorkTask)
+	mux.HandleFunc("PUT /api/work/tasks/{id}", s.updateWorkTask)
+	mux.HandleFunc("POST /api/work/tasks/{id}/claim", s.claimWorkTask)
+	mux.HandleFunc("DELETE /api/work/tasks/{id}", s.deleteWorkTask)
+	mux.HandleFunc("POST /api/work/tasks/{id}/comments", s.createWorkComment)
+	mux.HandleFunc("GET /api/work/tasks/{id}/comments", s.getWorkTaskComments)
+	mux.HandleFunc("POST /api/work/projects/{id}/invites", s.createWorkInvite)
+	mux.HandleFunc("DELETE /api/work/projects/{id}/invites", s.revokeWorkInvites)
+	mux.HandleFunc("DELETE /api/work/projects/{id}/members/{userId}", s.removeWorkMember)
+	mux.HandleFunc("DELETE /api/work/projects/{id}/membership", s.leaveWorkProject)
+	mux.HandleFunc("POST /api/work/invites/{token}/accept", s.acceptWorkInvite)
+	mux.HandleFunc("POST /api/work/invites/accept", s.acceptWorkInvite)
+	mux.HandleFunc("POST /api/work/projects/{id}/attachments", s.createWorkAttachment)
+	mux.HandleFunc("GET /api/work/attachments/{id}", s.downloadWorkAttachment)
+	mux.HandleFunc("DELETE /api/work/attachments/{id}", s.deleteWorkAttachment)
+	mux.HandleFunc("POST /api/work/projects/{id}/links", s.createWorkLink)
+	mux.HandleFunc("DELETE /api/work/links/{id}", s.deleteWorkLink)
+	mux.HandleFunc("POST /api/work/projects/{id}/notes", s.createWorkNote)
+	mux.HandleFunc("GET /api/work/notes/{id}", s.getWorkNote)
+	mux.HandleFunc("PUT /api/work/notes/{id}", s.updateWorkNote)
+	mux.HandleFunc("DELETE /api/work/notes/{id}", s.deleteWorkNote)
 
 	mux.HandleFunc("PUT /api/profile", s.updateProfile)
+	mux.HandleFunc("PUT /api/profile/work-visibility", s.updateWorkProfile)
+	mux.HandleFunc("PUT /api/profile/bottom-navigation", s.updateBottomNavigation)
+	mux.HandleFunc("PUT /api/profile/workspace", s.updateWorkspacePreferences)
 	mux.HandleFunc("PUT /api/photo", s.updatePhoto)
 	mux.HandleFunc("PUT /api/signature", s.updateSignature)
 	mux.HandleFunc("POST /api/reset", s.reset)
 }
 
-const legacySessionCookieName = "identity_workspace_session"
-const secureSessionCookieName = "__Host-identity_workspace_session"
+const legacySessionCookieName = "avatar_id_session"
+const secureSessionCookieName = "__Host-avatar_id_session"
 
 type authRequest struct {
 	Login    string `json:"login"`
@@ -138,6 +220,18 @@ type authRequest struct {
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ok\n"))
+}
+
+func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	if err := s.service.Ready(ctx); err != nil {
+		http.Error(w, "not ready", http.StatusServiceUnavailable)
+		return
+	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok\n"))
@@ -151,6 +245,7 @@ func (s *Server) authSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "требуется вход", http.StatusUnauthorized)
 		return
 	}
+	s.refreshSessionCookie(w, token)
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{"user": user})
 }
@@ -206,18 +301,24 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		if r.Method == http.MethodOptions || !strings.HasPrefix(r.URL.Path, "/api/") ||
 			r.URL.Path == "/api/auth/login" ||
 			r.URL.Path == "/api/auth/session" ||
-			r.URL.Path == "/api/integrations/fatsecret/callback" ||
-			r.URL.Path == "/api/integrations/ticktick/callback" {
+			r.URL.Path == "/api/auth/registration" ||
+			r.URL.Path == "/api/auth/registration/request" ||
+			r.URL.Path == "/api/auth/registration/complete" ||
+			r.URL.Path == "/api/integrations/fatsecret/callback" {
 			next.ServeHTTP(w, r)
 			return
 		}
-		user, err := s.service.Authenticate(r.Context(), s.sessionToken(r))
+		token := s.sessionToken(r)
+		user, err := s.service.Authenticate(r.Context(), token)
 		if err != nil {
 			s.clearSessionCookie(w)
 			http.Error(w, "требуется вход", http.StatusUnauthorized)
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(domain.WithUserID(r.Context(), user.ID)))
+		if r.URL.Path != "/api/auth/logout" {
+			s.refreshSessionCookie(w, token)
+		}
+		next.ServeHTTP(w, r.WithContext(application.WithUser(r.Context(), user)))
 	})
 }
 
@@ -242,12 +343,16 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, token, expiresAt string
 		Name:     s.sessionCookieName(),
 		Value:    token,
 		Path:     "/",
-		MaxAge:   30 * 24 * 60 * 60,
+		MaxAge:   int(domain.AuthSessionIdleTimeout / time.Second),
 		Expires:  expires,
 		HttpOnly: true,
 		Secure:   s.config.SecureCookies,
 		SameSite: http.SameSiteLaxMode,
 	})
+}
+
+func (s *Server) refreshSessionCookie(w http.ResponseWriter, token string) {
+	s.setSessionCookie(w, token, time.Now().Add(domain.AuthSessionIdleTimeout).UTC().Format(time.RFC3339))
 }
 
 func (s *Server) clearSessionCookie(w http.ResponseWriter) {
@@ -270,7 +375,13 @@ func (s *Server) clearSessionCookie(w http.ResponseWriter) {
 }
 
 func (s *Server) getState(w http.ResponseWriter, r *http.Request) {
-	value, err := s.service.State(r.Context())
+	var value domain.State
+	var err error
+	if r.URL.Query().Get("includeActiveTasks") == "false" {
+		value, err = s.service.StateWithoutActiveTasks(r.Context())
+	} else {
+		value, err = s.service.State(r.Context())
+	}
 	respond(w, value, err, http.StatusOK)
 }
 
@@ -345,72 +456,142 @@ func (s *Server) fatSecretNutrition(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, value)
 }
 
-func (s *Server) tickTickStatus(w http.ResponseWriter, r *http.Request) {
-	value, err := s.service.TickTickStatus(r.Context())
-	if err == nil {
-		w.Header().Set("Cache-Control", "no-store")
-	}
-	respond(w, value, err, http.StatusOK)
-}
-
-func (s *Server) tickTickConnect(w http.ResponseWriter, r *http.Request) {
-	callbackURL := s.callbackURL(r, s.config.TickTickCallbackURL, "/api/integrations/ticktick/callback")
-	authorizeURL, err := s.service.BeginTickTickConnection(r.Context(), callbackURL, safeReturnTo(r.URL.Query().Get("return_to")))
-	if err != nil {
-		if errors.Is(err, domain.ErrConflict) {
-			http.Error(w, "TickTick не настроен на сервере", http.StatusServiceUnavailable)
+func (s *Server) fatSecretFoodSearch(w http.ResponseWriter, r *http.Request) {
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	exact := r.URL.Query().Get("exact") == "1"
+	page := 0
+	if rawPage := strings.TrimSpace(r.URL.Query().Get("page")); rawPage != "" {
+		parsedPage, err := strconv.Atoi(rawPage)
+		if err != nil {
+			http.Error(w, "page must be a non-negative integer", http.StatusBadRequest)
 			return
 		}
-		log.Printf("ticktick connect request_id=%s: %v", requestID(r), err)
-		http.Error(w, "не удалось начать подключение TickTick", http.StatusBadGateway)
-		return
+		page = parsedPage
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"authorizeUrl": authorizeURL})
-}
-
-func (s *Server) tickTickCallback(w http.ResponseWriter, r *http.Request) {
-	state := strings.TrimSpace(r.URL.Query().Get("state"))
-	code := strings.TrimSpace(r.URL.Query().Get("code"))
-	if state == "" || code == "" || strings.TrimSpace(r.URL.Query().Get("error")) != "" {
-		http.Redirect(w, r, "/?ticktick=denied", http.StatusSeeOther)
-		return
-	}
-	returnTo, err := s.service.CompleteTickTickConnection(r.Context(), state, code)
-	if errors.Is(err, domain.ErrNotFound) {
-		http.Redirect(w, r, "/?ticktick=expired", http.StatusSeeOther)
-		return
-	}
+	value, err := s.service.SearchFoods(r.Context(), query, exact, page)
 	if err != nil {
-		log.Printf("ticktick callback: %v", err)
-		http.Redirect(w, r, addReturnStatus(defaultReturnTo(returnTo), "ticktick", "error"), http.StatusSeeOther)
+		s.writeFatSecretError(w, r, err, "не удалось найти продукты")
 		return
 	}
-	http.Redirect(w, r, addReturnStatus(defaultReturnTo(returnTo), "ticktick", "connected"), http.StatusSeeOther)
+	w.Header().Set("Cache-Control", "private, no-store")
+	writeJSON(w, http.StatusOK, value)
 }
 
-func (s *Server) tickTickDisconnect(w http.ResponseWriter, r *http.Request) {
-	if err := s.service.DisconnectTickTick(r.Context()); err != nil {
+func (s *Server) fatSecretFood(w http.ResponseWriter, r *http.Request) {
+	value, err := s.service.Food(r.Context(), strings.TrimSpace(r.PathValue("id")))
+	if err != nil {
+		s.writeFatSecretError(w, r, err, "не удалось загрузить продукт")
+		return
+	}
+	w.Header().Set("Cache-Control", "private, no-store")
+	writeJSON(w, http.StatusOK, value)
+}
+
+func (s *Server) fatSecretBarcodeFood(w http.ResponseWriter, r *http.Request) {
+	value, err := s.service.BarcodeFood(r.Context(), strings.TrimSpace(r.PathValue("barcode")))
+	if err != nil {
+		s.writeFatSecretError(w, r, err, "продукт с таким штрихкодом не найден")
+		return
+	}
+	w.Header().Set("Cache-Control", "private, no-store")
+	writeJSON(w, http.StatusOK, value)
+}
+
+func (s *Server) fatSecretRecentFoods(w http.ResponseWriter, r *http.Request) {
+	value, err := s.service.RecentFoods(r.Context(), strings.TrimSpace(r.URL.Query().Get("meal")))
+	if err != nil {
+		s.writeFatSecretError(w, r, err, "не удалось загрузить недавние продукты")
+		return
+	}
+	w.Header().Set("Cache-Control", "private, no-store")
+	writeJSON(w, http.StatusOK, value)
+}
+
+func (s *Server) fatSecretCreateEntry(w http.ResponseWriter, r *http.Request) {
+	var input domain.FoodEntryInput
+	if err := decodeJSON(w, r, 8_000, &input); err != nil {
+		http.Error(w, "bad food entry json", http.StatusBadRequest)
+		return
+	}
+	value, saved, err := s.service.CreateFoodEntry(r.Context(), input)
+	if err != nil {
+		if saved {
+			log.Printf("fatsecret entry saved but diary refresh failed request_id=%s: %v", requestID(r), err)
+			w.Header().Set("Cache-Control", "private, no-store")
+			writeJSON(w, http.StatusCreated, value)
+			return
+		}
+		s.writeFatSecretError(w, r, err, "не удалось добавить продукт")
+		return
+	}
+	w.Header().Set("Cache-Control", "private, no-store")
+	writeJSON(w, http.StatusCreated, value)
+}
+
+func (s *Server) fatSecretUpdateEntry(w http.ResponseWriter, r *http.Request) {
+	var input domain.FoodEntryUpdate
+	if err := decodeJSON(w, r, 8_000, &input); err != nil {
+		http.Error(w, "bad food entry json", http.StatusBadRequest)
+		return
+	}
+	value, err := s.service.UpdateFoodEntry(r.Context(), strings.TrimSpace(r.PathValue("id")), input, strings.TrimSpace(r.URL.Query().Get("date")))
+	if err != nil {
+		s.writeFatSecretError(w, r, err, "не удалось изменить продукт")
+		return
+	}
+	w.Header().Set("Cache-Control", "private, no-store")
+	writeJSON(w, http.StatusOK, value)
+}
+
+func (s *Server) fatSecretDeleteEntry(w http.ResponseWriter, r *http.Request) {
+	value, err := s.service.DeleteFoodEntry(r.Context(), strings.TrimSpace(r.PathValue("id")), strings.TrimSpace(r.URL.Query().Get("date")))
+	if err != nil {
+		s.writeFatSecretError(w, r, err, "не удалось удалить продукт")
+		return
+	}
+	w.Header().Set("Cache-Control", "private, no-store")
+	writeJSON(w, http.StatusOK, value)
+}
+
+func (s *Server) writeFatSecretError(w http.ResponseWriter, r *http.Request, err error, fallback string) {
+	if errors.Is(err, domain.ErrInvalidInput) || errors.Is(err, domain.ErrConflict) || errors.Is(err, domain.ErrUnauthorized) {
 		writeError(w, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *Server) tickTickSync(w http.ResponseWriter, r *http.Request) {
-	userID, err := domain.UserID(r.Context())
-	if err != nil {
-		http.Error(w, "требуется вход", http.StatusUnauthorized)
+	log.Printf("fatsecret operation request_id=%s: %v", requestID(r), err)
+	lower := strings.ToLower(err.Error())
+	if strings.Contains(lower, "scope") || strings.Contains(lower, "premier") || strings.Contains(lower, "not permitted") || strings.Contains(lower, "invalid region") || strings.Contains(lower, "localization") {
+		http.Error(w, "Для российской базы нужен доступ FatSecret к региону RU. Это право выдаётся для Consumer Key отдельно.", http.StatusBadGateway)
 		return
 	}
-	release, retry, allowed := s.tickTickSyncGuard.begin(userID)
-	if !allowed {
-		w.Header().Set("Retry-After", strconv.Itoa(max(1, int(retry.Round(time.Second).Seconds()))))
-		http.Error(w, "синхронизация уже выполняется или была запущена недавно", http.StatusTooManyRequests)
-		return
+	var coded interface{ ProviderErrorCode() string }
+	if errors.As(err, &coded) {
+		switch coded.ProviderErrorCode() {
+		case "5":
+			http.Error(w, "FatSecret отклонил Consumer Key (код 5). Проверьте OAuth 1.0 Consumer Key в настройках сервера.", http.StatusBadGateway)
+			return
+		case "6":
+			http.Error(w, "FatSecret отклонил время запроса (код 6). Проверьте синхронизацию времени сервера.", http.StatusBadGateway)
+			return
+		case "8":
+			http.Error(w, "FatSecret отклонил подпись OAuth 1.0 (код 8). Проверьте Consumer Secret и переподключите интеграцию.", http.StatusBadGateway)
+			return
+		case "9":
+			http.Error(w, "Токен подключённого аккаунта FatSecret недействителен (код 9). Отключите и подключите FatSecret заново.", http.StatusBadGateway)
+			return
+		case "11", "12":
+			http.Error(w, "Достигнут лимит запросов FatSecret (код "+coded.ProviderErrorCode()+"). Повторите позже.", http.StatusTooManyRequests)
+			return
+		case "14", "208":
+			http.Error(w, "Для российской базы нужен доступ FatSecret к региону RU (код "+coded.ProviderErrorCode()+"). Это право выдаётся для Consumer Key отдельно.", http.StatusBadGateway)
+			return
+		}
+		if code := strings.TrimSpace(coded.ProviderErrorCode()); code != "" {
+			http.Error(w, fallback+". FatSecret вернул код "+code+".", http.StatusBadGateway)
+			return
+		}
 	}
-	defer release()
-	value, err := s.service.SyncTickTick(r.Context())
-	respond(w, value, err, http.StatusOK)
+	http.Error(w, fallback, http.StatusBadGateway)
 }
 
 func (s *Server) getTrackers(w http.ResponseWriter, r *http.Request) {
@@ -419,15 +600,13 @@ func (s *Server) getTrackers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) putCalorieGoal(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		CalorieGoal int `json:"calorieGoal"`
-	}
+	var body domain.NutritionGoals
 	if err := decodeJSON(w, r, 4_000, &body); err != nil {
-		http.Error(w, "bad calorie goal json", http.StatusBadRequest)
+		http.Error(w, "bad nutrition goals json", http.StatusBadRequest)
 		return
 	}
-	value, err := s.service.UpdateCalorieGoal(r.Context(), body.CalorieGoal)
-	respond(w, map[string]int{"calorieGoal": value}, err, http.StatusOK)
+	value, err := s.service.UpdateNutritionGoals(r.Context(), body)
+	respond(w, value, err, http.StatusOK)
 }
 
 func (s *Server) putWeight(w http.ResponseWriter, r *http.Request) {
@@ -541,6 +720,49 @@ func (s *Server) deleteCustomTracker(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) getGitHubTracker(w http.ResponseWriter, r *http.Request) {
+	value, err := s.service.GitHubTracker(r.Context(), r.URL.Query().Get("refresh") == "1")
+	s.respondGitHubTracker(w, value, err)
+}
+
+func (s *Server) putGitHubTracker(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Username string `json:"username"`
+	}
+	if err := decodeJSON(w, r, 4_000, &body); err != nil {
+		http.Error(w, "bad github tracker json", http.StatusBadRequest)
+		return
+	}
+	value, err := s.service.SaveGitHubTracker(r.Context(), body.Username)
+	s.respondGitHubTracker(w, value, err)
+}
+
+func (s *Server) deleteGitHubTracker(w http.ResponseWriter, r *http.Request) {
+	if err := s.service.DeleteGitHubTracker(r.Context()); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) respondGitHubTracker(w http.ResponseWriter, value domain.GitHubTrackerState, err error) {
+	if err == nil {
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, http.StatusOK, value)
+		return
+	}
+	if errors.Is(err, domain.ErrNotFound) {
+		http.Error(w, "пользователь GitHub не найден", http.StatusNotFound)
+		return
+	}
+	if errors.Is(err, domain.ErrInvalidInput) || errors.Is(err, domain.ErrConflict) {
+		writeError(w, err)
+		return
+	}
+	log.Printf("github tracker: %s", sanitizeLogText(err.Error(), 2_000))
+	http.Error(w, "не удалось получить публичную активность GitHub", http.StatusBadGateway)
+}
+
 func (s *Server) getTrackerReminders(w http.ResponseWriter, r *http.Request) {
 	value, err := s.service.TrackerReminders(r.Context())
 	respond(w, value, err, http.StatusOK)
@@ -631,6 +853,19 @@ func (s *Server) updateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	value, err := s.service.UpdateTask(r.Context(), id, input)
+	respond(w, value, err, http.StatusOK)
+}
+
+func (s *Server) swapTaskOrder(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ID      int64 `json:"id"`
+		OtherID int64 `json:"otherId"`
+	}
+	if err := decodeJSON(w, r, 4_000, &body); err != nil {
+		http.Error(w, "bad task order json", http.StatusBadRequest)
+		return
+	}
+	value, err := s.service.SwapTaskOrder(r.Context(), body.ID, body.OtherID)
 	respond(w, value, err, http.StatusOK)
 }
 
@@ -748,6 +983,34 @@ func (s *Server) updateProfile(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) updateWorkProfile(w http.ResponseWriter, r *http.Request) {
+	var input domain.WorkProfileInput
+	if err := decodeJSON(w, r, 6_000_000, &input); err != nil {
+		http.Error(w, "bad work profile json or photo too large", http.StatusBadRequest)
+		return
+	}
+	if err := s.service.UpdateWorkProfile(r.Context(), input); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) updateBottomNavigation(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Items []string `json:"items"`
+	}
+	if err := decodeJSON(w, r, 2_000, &body); err != nil {
+		http.Error(w, "bad bottom navigation json", http.StatusBadRequest)
+		return
+	}
+	if err := s.service.UpdateBottomNavigation(r.Context(), body.Items); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) updatePhoto(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Data string `json:"data"`
@@ -845,6 +1108,9 @@ func writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, domain.ErrUnauthorized):
 		status = http.StatusUnauthorized
 		message = "требуется вход"
+	case errors.Is(err, domain.ErrForbidden):
+		status = http.StatusForbidden
+		message = "недостаточно прав"
 	case errors.Is(err, domain.ErrInvalidInput):
 		status = http.StatusBadRequest
 		message = err.Error()
@@ -956,6 +1222,8 @@ func (s *Server) mountStatic(mux *http.ServeMux) {
 			if fileInfo, statErr := os.Stat(candidate); statErr == nil && !fileInfo.IsDir() {
 				if relative == "manifest.webmanifest" || relative == "sw.js" {
 					w.Header().Set("Cache-Control", "no-cache")
+				} else if strings.HasPrefix(relative, "assets/") {
+					w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 				} else {
 					w.Header().Set("Cache-Control", "public, max-age=3600")
 				}

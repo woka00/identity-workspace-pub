@@ -1,0 +1,13 @@
+# Use only for an explicit password-rotation command. Create
+# ./secrets/admin_password immediately before the command and delete it after.
+services:
+  app:
+    environment:
+      AVATAR_NEW_PASSWORD: ""
+      AVATAR_NEW_PASSWORD_FILE: /run/secrets/admin_password
+    secrets:
+      - admin_password
+
+secrets:
+  admin_password:
+    file: ./secrets/admin_password

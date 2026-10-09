@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"identity-workspace/internal/domain"
+	"avatar-id/internal/domain"
 )
 
 type PushGateway interface {
@@ -83,6 +83,11 @@ type trackerReminderRepository interface {
 	DeleteTrackerReminder(context.Context, string) error
 	ClaimDueTrackerReminders(context.Context, string, string, time.Time, int) ([]domain.TrackerReminderJob, error)
 	CompleteTrackerReminder(context.Context, int64, string, string, bool) error
+}
+
+type timeActivityReminderRepository interface {
+	ClaimDueTimeActivityReminders(context.Context, time.Time, int) ([]domain.TimeActivityReminderJob, error)
+	CompleteTimeActivityReminder(context.Context, int64, time.Time, bool) error
 }
 
 func (s *Service) trackerReminderRepository() (trackerReminderRepository, error) {
@@ -226,10 +231,17 @@ func (s *Service) RunReminderWorker(ctx context.Context) {
 }
 
 func (s *Service) deliverDueReminders(ctx context.Context) error {
+	var deliveryErrors []error
 	if err := s.deliverDueTaskReminders(ctx); err != nil {
-		return err
+		deliveryErrors = append(deliveryErrors, fmt.Errorf("task reminders: %w", err))
 	}
-	return s.deliverDueTrackerReminders(ctx)
+	if err := s.deliverDueTrackerReminders(ctx); err != nil {
+		deliveryErrors = append(deliveryErrors, fmt.Errorf("tracker reminders: %w", err))
+	}
+	if err := s.deliverDueTimeActivityReminders(ctx); err != nil {
+		deliveryErrors = append(deliveryErrors, fmt.Errorf("time activity reminders: %w", err))
+	}
+	return errors.Join(deliveryErrors...)
 }
 
 func (s *Service) deliverDueTaskReminders(ctx context.Context) error {
@@ -305,6 +317,49 @@ func (s *Service) deliverDueTrackerReminders(ctx context.Context) error {
 			}
 		}
 		if err := repo.CompleteTrackerReminder(ctx, job.UserID, job.TrackerKey, job.LocalDate, sent); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) deliverDueTimeActivityReminders(ctx context.Context) error {
+	repo, ok := s.repo.(timeActivityReminderRepository)
+	if !ok {
+		return fmt.Errorf("time activity reminders repository is unavailable: %w", domain.ErrConflict)
+	}
+	now := s.now()
+	jobs, err := repo.ClaimDueTimeActivityReminders(ctx, now.UTC(), 25)
+	if err != nil {
+		return err
+	}
+	for _, job := range jobs {
+		payload, err := json.Marshal(map[string]any{
+			"title":    "Таймер · " + strings.TrimSpace(job.ActivityName),
+			"body":     strings.TrimSpace(job.Message),
+			"url":      "/?view=tracker",
+			"tag":      fmt.Sprintf("avatar-time-session-%d", job.SessionID),
+			"renotify": true,
+		})
+		if err != nil {
+			_ = repo.CompleteTimeActivityReminder(ctx, job.SessionID, now, false)
+			continue
+		}
+		sent := false
+		for _, subscription := range job.Subscriptions {
+			status, sendErr := s.push.Send(ctx, subscription, payload)
+			if sendErr == nil && status >= 200 && status < 300 {
+				sent = true
+				continue
+			}
+			if status == 404 || status == 410 {
+				_ = s.repo.DeletePushSubscriptionByID(ctx, subscription.ID)
+			}
+			if sendErr != nil {
+				log.Printf("time activity reminder %d push %d: %v", job.ActivityID, subscription.ID, sendErr)
+			}
+		}
+		if err := repo.CompleteTimeActivityReminder(ctx, job.SessionID, now, sent); err != nil {
 			return err
 		}
 	}

@@ -1,0 +1,480 @@
+/* Only neutral colors change. Light-mode fallbacks live in styles.css.
+   Each dark token is the RGB inverse of its fallback, with alpha unchanged. */
+:root { color-scheme: light; }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --mono-000000-a_035: rgba(255, 255, 255, .035);
+  --mono-000000-a_08: rgba(255, 255, 255, .08);
+  --mono-000000-a_12: rgba(255, 255, 255, .12);
+  --mono-000000-a_14: rgba(255, 255, 255, .14);
+  --mono-000000-a_16: rgba(255, 255, 255, .16);
+  --mono-000000-a_2: rgba(255, 255, 255, .2);
+  --mono-000000-a_22: rgba(255, 255, 255, .22);
+  --mono-000000-a_24: rgba(255, 255, 255, .24);
+  --mono-000000-a_3: rgba(255, 255, 255, .3);
+  --mono-000000-a_35: rgba(255, 255, 255, .35);
+  --mono-000000-a_78: rgba(255, 255, 255, .78);
+  --mono-050505: #fafafa;
+  --mono-070706-a_42: rgba(248, 248, 249, .42);
+  --mono-070706-a_52: rgba(248, 248, 249, .52);
+  --mono-080807-a_62: rgba(247, 247, 248, .62);
+  --mono-080807-a_72: rgba(247, 247, 248, .72);
+  --mono-080807-a_78: rgba(247, 247, 248, .78);
+  --mono-080807-a0: rgba(247, 247, 248, 0);
+  --mono-11110f: #eeeef0;
+  --mono-111111: #eeeeee;
+  --mono-121211-a_26: rgba(237, 237, 238, .26);
+  --mono-121211-a_28: rgba(237, 237, 238, .28);
+  --mono-121212-a_42: rgba(237, 237, 237, .42);
+  --mono-141412-a_08: rgba(235, 235, 237, .08);
+  --mono-141412-a_18: rgba(235, 235, 237, .18);
+  --mono-141414: #ebebeb;
+  --mono-141414-a_025: rgba(235, 235, 235, .025);
+  --mono-141414-a_035: rgba(235, 235, 235, .035);
+  --mono-141414-a_045: rgba(235, 235, 235, .045);
+  --mono-141414-a_05: rgba(235, 235, 235, .05);
+  --mono-141414-a_055: rgba(235, 235, 235, .055);
+  --mono-141414-a_06: rgba(235, 235, 235, .06);
+  --mono-141414-a_065: rgba(235, 235, 235, .065);
+  --mono-141414-a_07: rgba(235, 235, 235, .07);
+  --mono-141414-a_075: rgba(235, 235, 235, .075);
+  --mono-141414-a_08: rgba(235, 235, 235, .08);
+  --mono-141414-a_09: rgba(235, 235, 235, .09);
+  --mono-141414-a_1: rgba(235, 235, 235, .1);
+  --mono-141414-a_11: rgba(235, 235, 235, .11);
+  --mono-141414-a_12: rgba(235, 235, 235, .12);
+  --mono-141414-a_13: rgba(235, 235, 235, .13);
+  --mono-141414-a_14: rgba(235, 235, 235, .14);
+  --mono-141414-a_16: rgba(235, 235, 235, .16);
+  --mono-141414-a_18: rgba(235, 235, 235, .18);
+  --mono-141414-a_2: rgba(235, 235, 235, .2);
+  --mono-141414-a_22: rgba(235, 235, 235, .22);
+  --mono-141414-a_35: rgba(235, 235, 235, .35);
+  --mono-141414-a_38: rgba(235, 235, 235, .38);
+  --mono-141414-a_42: rgba(235, 235, 235, .42);
+  --mono-141414-a_5: rgba(235, 235, 235, .5);
+  --mono-141414-a_58: rgba(235, 235, 235, .58);
+  --mono-141414-a_62: rgba(235, 235, 235, .62);
+  --mono-141414-a_68: rgba(235, 235, 235, .68);
+  --mono-141414-a_72: rgba(235, 235, 235, .72);
+  --mono-141414-a_82: rgba(235, 235, 235, .82);
+  --mono-14141424: #ebebeb24;
+  --mono-14141470: #ebebeb70;
+  --mono-151514: #eaeaeb;
+  --mono-151515: #eaeaea;
+  --mono-171716: #e8e8e9;
+  --mono-171717: #e8e8e8;
+  --mono-181816: #e7e7e9;
+  --mono-191916-a_07: rgba(230, 230, 233, .07);
+  --mono-1a1a19: #e5e5e6;
+  --mono-1b1b1a: #e4e4e5;
+  --mono-1c1c1a-a_52: rgba(227, 227, 229, .52);
+  --mono-1c1c1b: #e3e3e4;
+  --mono-1e1e1b-a_035: rgba(225, 225, 228, .035);
+  --mono-1e1e1b-a_045: rgba(225, 225, 228, .045);
+  --mono-1e1e1b-a_055: rgba(225, 225, 228, .055);
+  --mono-1e1e1c: #e1e1e3;
+  --mono-1e1e1c-a_04: rgba(225, 225, 227, .04);
+  --mono-1e1e1c-a_05: rgba(225, 225, 227, .05);
+  --mono-1e1e1c-a_06: rgba(225, 225, 227, .06);
+  --mono-1f1d18-a0_25: rgba(224, 226, 231, 0.25);
+  --mono-1f1f1c-a_04: rgba(224, 224, 227, .04);
+  --mono-1f1f1c-a_045: rgba(224, 224, 227, .045);
+  --mono-20201e: #dfdfe1;
+  --mono-222220: #dddddf;
+  --mono-222222: #dddddd;
+  --mono-242422: #dbdbdd;
+  --mono-242423: #dbdbdc;
+  --mono-252523: #dadadc;
+  --mono-252524: #dadadb;
+  --mono-292927: #d6d6d8;
+  --mono-2b2b2b: #d4d4d4;
+  --mono-2d2d2a: #d2d2d5;
+  --mono-30302d: #cfcfd2;
+  --mono-31312e: #ceced1;
+  --mono-333330: #cccccf;
+  --mono-333333: #cccccc;
+  --mono-343431: #cbcbce;
+  --mono-444440: #bbbbbf;
+  --mono-474744: #b8b8bb;
+  --mono-484844: #b7b7bb;
+  --mono-4e4e4a: #b1b1b5;
+  --mono-4f4f4b: #b0b0b4;
+  --mono-50504b: #afafb4;
+  --mono-50504c: #afafb3;
+  --mono-555550: #aaaaaf;
+  --mono-555551: #aaaaae;
+  --mono-575752: #a8a8ad;
+  --mono-5d5d58: #a2a2a7;
+  --mono-5f5f5a: #a0a0a5;
+  --mono-5f5f5b: #a0a0a4;
+  --mono-60605b: #9f9fa4;
+  --mono-61615c: #9e9ea3;
+  --mono-62625d: #9d9da2;
+  --mono-64645f: #9b9ba0;
+  --mono-646460: #9b9b9f;
+  --mono-656560: #9a9a9f;
+  --mono-666660: #99999f;
+  --mono-666661: #99999e;
+  --mono-676762: #98989d;
+  --mono-686863: #97979c;
+  --mono-686864: #97979b;
+  --mono-696964: #96969b;
+  --mono-696965: #96969a;
+  --mono-6c6c67: #939398;
+  --mono-6f6f69: #909096;
+  --mono-6f6f6a: #909095;
+  --mono-70706b: #8f8f94;
+  --mono-73736d: #8c8c92;
+  --mono-73736e: #8c8c91;
+  --mono-74746f: #8b8b90;
+  --mono-777771: #88888e;
+  --mono-777772: #88888d;
+  --mono-777777: #888888;
+  --mono-797974: #86868b;
+  --mono-7a7a75: #85858a;
+  --mono-7c7c76: #838389;
+  --mono-7d7d77: #828288;
+  --mono-7d7d78: #828287;
+  --mono-7f7f79: #808086;
+  --mono-81817b: #7e7e84;
+  --mono-85857f: #7a7a80;
+  --mono-858580: #7a7a7f;
+  --mono-888883: #77777c;
+  --mono-8a8a84: #75757b;
+  --mono-8a8a85: #75757a;
+  --mono-8b8b85: #74747a;
+  --mono-8b8b86: #747479;
+  --mono-8c8c86: #737379;
+  --mono-8c8c87: #737378;
+  --mono-8d8d87: #727278;
+  --mono-8d8d88: #727277;
+  --mono-8e8e88: #717177;
+  --mono-8f8f89: #707076;
+  --mono-91918c: #6e6e73;
+  --mono-92928c: #6d6d73;
+  --mono-92928d: #6d6d72;
+  --mono-93938e: #6c6c71;
+  --mono-94948e: #6b6b71;
+  --mono-94948f: #6b6b70;
+  --mono-95958f: #6a6a70;
+  --mono-969690: #69696f;
+  --mono-999991: #66666e;
+  --mono-999992: #66666d;
+  --mono-999993: #66666c;
+  --mono-999994: #66666b;
+  --mono-9a9a94: #65656b;
+  --mono-9a9a95: #65656a;
+  --mono-9a9a96: #656569;
+  --mono-9b9b96: #646469;
+  --mono-9e9e98: #616167;
+  --mono-a0a09a: #5f5f65;
+  --mono-a0a09b: #5f5f64;
+  --mono-a9a9a4: #56565b;
+  --mono-aaa9a3: #55565c;
+  --mono-aaa9a4: #55565b;
+  --mono-aaaaaa: #555555;
+  --mono-b1b1ac: #4e4e53;
+  --mono-b2b2ac: #4d4d53;
+  --mono-b8b8b2: #47474d;
+  --mono-b8b8b8: #474747;
+  --mono-b9b9b1: #46464e;
+  --mono-b9b9b3: #46464c;
+  --mono-bcbcb6: #434349;
+  --mono-bdbdb8: #424247;
+  --mono-c1c1bc: #3e3e43;
+  --mono-c2c2bc: #3d3d43;
+  --mono-c8c8c2: #37373d;
+  --mono-c9c9c3: #36363c;
+  --mono-cfcfca: #303035;
+  --mono-d0d0ca: #2f2f35;
+  --mono-d0d0cb: #2f2f34;
+  --mono-d1d1cc: #2e2e33;
+  --mono-d1d1cd: #2e2e32;
+  --mono-d2d2cd: #2d2d32;
+  --mono-d2d2ce: #2d2d31;
+  --mono-d3d3ce: #2c2c31;
+  --mono-d3d3cf: #2c2c30;
+  --mono-d4d4cf: #2b2b30;
+  --mono-d5d5cf: #2a2a30;
+  --mono-d5d5d0: #2a2a2f;
+  --mono-d5d5d5: #2a2a2a;
+  --mono-d6d6d1: #29292e;
+  --mono-d6d6d2: #29292d;
+  --mono-d7d7d1: #28282e;
+  --mono-d7d7d3: #28282c;
+  --mono-d8d8d3: #27272c;
+  --mono-d9d9d3: #26262c;
+  --mono-dadad5: #25252a;
+  --mono-dcdcd6: #232329;
+  --mono-dcdcd7: #232328;
+  --mono-deded8: #212127;
+  --mono-deded9: #212126;
+  --mono-dfdfda: #202025;
+  --mono-dfdfdc: #202023;
+  --mono-e0e0da: #1f1f25;
+  --mono-e0e0db: #1f1f24;
+  --mono-e0e0dc: #1f1f23;
+  --mono-e1e1dc: #1e1e23;
+  --mono-e1e1dd: #1e1e22;
+  --mono-e2e2dd: #1d1d22;
+  --mono-e4e4df: #1b1b20;
+  --mono-e4e4e0: #1b1b1f;
+  --mono-e5e5e0: #1a1a1f;
+  --mono-e5e5e1: #1a1a1e;
+  --mono-e6e6e2: #19191d;
+  --mono-e7e7e1: #18181e;
+  --mono-e7e7e2: #18181d;
+  --mono-e7e7e3: #18181c;
+  --mono-e8e8e2: #17171d;
+  --mono-e8e8e3: #17171c;
+  --mono-e8e8e4: #17171b;
+  --mono-e8e8e5: #17171a;
+  --mono-e9e9e5: #16161a;
+  --mono-eaeae6: #151519;
+  --mono-ebebe7: #141418;
+  --mono-ebedf0: #14120f;
+  --mono-ecece7: #131318;
+  --mono-ecece8: #131317;
+  --mono-ecece9-a_94: rgba(19, 19, 22, .94);
+  --mono-edede8: #121217;
+  --mono-edede9: #121216;
+  --mono-eeeeea: #111115;
+  --mono-eeeeeb: #111114;
+  --mono-eeeeec: #111113;
+  --mono-eeeeee: #111111;
+  --mono-efefeb: #101014;
+  --mono-efefec: #101013;
+  --mono-efefec-a_97: rgba(16, 16, 19, .97);
+  --mono-efefef: #101010;
+  --mono-f0f0eb: #0f0f14;
+  --mono-f0f0ec: #0f0f13;
+  --mono-f0f0ed: #0f0f12;
+  --mono-f1f1ed: #0e0e12;
+  --mono-f1f1ee: #0e0e11;
+  --mono-f2f2ef: #0d0d10;
+  --mono-f3f3f0: #0c0c0f;
+  --mono-f4f4f1: #0b0b0e;
+  --mono-f4f4f2: #0b0b0d;
+  --mono-f5f5f1: #0a0a0e;
+  --mono-f5f5f2: #0a0a0d;
+  --mono-f5f5f2-a_96: rgba(10, 10, 13, .96);
+  --mono-f6f6f3: #09090c;
+  --mono-f6f6f3-a_92: rgba(9, 9, 12, .92);
+  --mono-f6f6f3-a_94: rgba(9, 9, 12, .94);
+  --mono-f7f7f4: #08080b;
+  --mono-f7f7f5: #08080a;
+  --mono-f8f8f5: #07070a;
+  --mono-f8f8f6: #070709;
+  --mono-f8f8f6-a_96: rgba(7, 7, 9, .96);
+  --mono-f8f8f6-a_97: rgba(7, 7, 9, .97);
+  --mono-fafaf7: #050508;
+  --mono-fafaf7-a_96: rgba(5, 5, 8, .96);
+  --mono-fafaf8: #050507;
+  --mono-fbfbf7: #040408;
+  --mono-fbfbf9: #040406;
+  --mono-fffcef-a0_72: rgba(0, 3, 16, 0.72);
+  --mono-fffcfc-a_78: rgba(0, 3, 3, .78);
+  --mono-ffffff: #000000;
+  --mono-ffffff-a_12: rgba(0, 0, 0, .12);
+  --mono-ffffff-a_18: rgba(0, 0, 0, .18);
+  --mono-ffffff-a_2: rgba(0, 0, 0, .2);
+  --mono-ffffff-a_26: rgba(0, 0, 0, .26);
+  --mono-ffffff-a_28: rgba(0, 0, 0, .28);
+  --mono-ffffff-a_4: rgba(0, 0, 0, .4);
+  --mono-ffffff-a_42: rgba(0, 0, 0, .42);
+  --mono-ffffff-a_44: rgba(0, 0, 0, .44);
+  --mono-ffffff-a_45: rgba(0, 0, 0, .45);
+  --mono-ffffff-a_48: rgba(0, 0, 0, .48);
+  --mono-ffffff-a_5: rgba(0, 0, 0, .5);
+  --mono-ffffff-a_55: rgba(0, 0, 0, .55);
+  --mono-ffffff-a_56: rgba(0, 0, 0, .56);
+  --mono-ffffff-a_58: rgba(0, 0, 0, .58);
+  --mono-ffffff-a_62: rgba(0, 0, 0, .62);
+  --mono-ffffff-a_64: rgba(0, 0, 0, .64);
+  --mono-ffffff-a_65: rgba(0, 0, 0, .65);
+  --mono-ffffff-a_66: rgba(0, 0, 0, .66);
+  --mono-ffffff-a_68: rgba(0, 0, 0, .68);
+  --mono-ffffff-a_7: rgba(0, 0, 0, .7);
+  --mono-ffffff-a_72: rgba(0, 0, 0, .72);
+  --mono-ffffff-a_74: rgba(0, 0, 0, .74);
+  --mono-ffffff-a_75: rgba(0, 0, 0, .75);
+  --mono-ffffff-a_76: rgba(0, 0, 0, .76);
+  --mono-ffffff-a_78: rgba(0, 0, 0, .78);
+  --mono-ffffff-a_82: rgba(0, 0, 0, .82);
+  --mono-ffffff-a_9: rgba(0, 0, 0, .9);
+  --mono-ffffff-a_92: rgba(0, 0, 0, .92);
+  --mono-ffffff-a_94: rgba(0, 0, 0, .94);
+  --mono-ffffff-a_96: rgba(0, 0, 0, .96);
+  --mono-ffffff99: #00000099;
+}
+
+/* Invert monochrome artwork only; photos, food images and camera video keep their colors. */
+:root[data-theme="dark"] :is(.cardArtwork, .cardSignatureDrawn img, .signatureCanvas, .trackerBuiltinIcon, .customTrackerGlyph img, .customTrackerDetailIcon img, .customTrackerIconGrid img, .trackerReminderIcon img, .barcodeScanIconButton img, .desktopNavBrand img) { filter: invert(1); }
+:root[data-theme="dark"] .customTrackerIconGrid > button.isSelected img { filter: none; }
+
+/* Apple is an opt-in light theme. It remaps shared semantic tokens and then
+   adds material/interaction treatment without changing light or dark rules. */
+:root[data-theme="apple"] {
+  color-scheme: light;
+  --apple-blue: #007aff;
+  --apple-blue-hover: #006ee6;
+  --apple-blue-pressed: #0068d9;
+  --apple-focus: rgba(0, 122, 255, .34);
+  --apple-material: rgba(255, 255, 255, .78);
+  --apple-material-heavy: rgba(255, 255, 255, .92);
+  --apple-shadow: rgba(0, 0, 0, .10);
+  --ink: #1d1d1f;
+  --paper: #f5f5f7;
+  --gray: #6e6e73;
+  --line: rgba(60, 60, 67, .18);
+  --stamp: #ff3b30;
+  --app-bg: #f5f5f7;
+  --tile: rgba(255, 255, 255, .88);
+  --tile-strong: rgba(118, 118, 128, .18);
+  --tile-soft: rgba(255, 255, 255, .58);
+  --tile-radius: 24px;
+  --control-radius: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", sans-serif;
+  font-optical-sizing: auto;
+  background: var(--app-bg);
+}
+
+:root[data-theme="apple"] body,
+:root[data-theme="apple"] .root {
+  background:
+    radial-gradient(circle at 12% -8%, rgba(0, 122, 255, .10), transparent 30rem),
+    radial-gradient(circle at 100% 18%, rgba(175, 82, 222, .07), transparent 26rem),
+    var(--app-bg);
+  background-attachment: fixed;
+}
+
+:root[data-theme="apple"] ::selection { background: rgba(0, 122, 255, .20); }
+
+:root[data-theme="apple"] :is(button, input, textarea, select, a):focus-visible {
+  outline-color: var(--apple-blue);
+}
+
+:root[data-theme="apple"] :is(h1, h2, .docTitle > span:first-child, .timeTrackerHeading h1) {
+  letter-spacing: -.035em;
+}
+
+:root[data-theme="apple"] .tabs,
+:root[data-theme="apple"] .taskDesktopSidebar,
+:root[data-theme="apple"] .page-projects .workHeader {
+  background: var(--apple-material);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: blur(28px) saturate(180%);
+  border-color: var(--line);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .72) inset;
+}
+
+:root[data-theme="apple"] .tab:hover { background: rgba(0, 122, 255, .09); color: var(--apple-blue); }
+:root[data-theme="apple"] .tabActive,
+:root[data-theme="apple"] .tabActive:hover,
+:root[data-theme="apple"] .tabs .tabActive,
+:root[data-theme="apple"] .tabs .tabActive:hover {
+  background: var(--apple-blue);
+  color: #fff;
+  box-shadow: 0 7px 18px rgba(0, 122, 255, .22);
+}
+:root[data-theme="apple"] .tabActive .tabMeta,
+:root[data-theme="apple"] .tabs .tabActive .tabMeta { border-color: transparent; background: rgba(255, 255, 255, .92); color: var(--apple-blue-pressed); }
+
+:root[data-theme="apple"] :is(.primaryButton, .completeProject, .createFab),
+:root[data-theme="apple"] .page-projects :is(.workNewProject, .workHeaderActions > button, .workToolbar > button),
+:root[data-theme="apple"] .profileThemeModes button[aria-pressed="true"] {
+  background: var(--apple-blue);
+  color: #fff;
+  box-shadow: 0 7px 18px rgba(0, 122, 255, .20);
+}
+
+:root[data-theme="apple"] :is(.primaryButton, .completeProject, .createFab):hover,
+:root[data-theme="apple"] .page-projects :is(.workNewProject, .workHeaderActions > button, .workToolbar > button):hover {
+  background: var(--apple-blue-hover);
+  color: #fff;
+}
+
+:root[data-theme="apple"] :is(.primaryButton, .completeProject, .createFab):active,
+:root[data-theme="apple"] .page-projects :is(.workNewProject, .workHeaderActions > button, .workToolbar > button):active,
+:root[data-theme="apple"] .profileThemeModes button:active {
+  transform: scale(.97);
+  transition: transform 100ms ease-out;
+}
+
+:root[data-theme="apple"] :is(.profileToggle, .projectProfileToggle) input:checked + i { background: var(--apple-blue); }
+:root[data-theme="apple"] .filterChipActive::after { background: var(--apple-blue); }
+:root[data-theme="apple"] .page-projects .workProjectList > button.active { background: var(--apple-blue); color: #fff; }
+:root[data-theme="apple"] .page-projects .workHeader nav button.active { border-color: var(--apple-blue); color: var(--apple-blue); }
+
+:root[data-theme="apple"] :is(.doc, .projectsSection, .timeSessionHero, .profileTheme, .projectCard, .trackerMetric) {
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .82) inset, 0 12px 34px rgba(0, 0, 0, .055);
+}
+
+:root[data-theme="apple"] :is(.input, .workSearch, .workToolbar input, .workToolbar select) {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, .84);
+}
+:root[data-theme="apple"] .input:focus { outline: 3px solid var(--apple-focus); outline-offset: 0; }
+
+:root[data-theme="apple"] .overlay { background: rgba(28, 28, 30, .34); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+:root[data-theme="apple"] :is(.modal, .modalWide, .toast, .page-projects .workTaskDrawer) {
+  border-color: rgba(255, 255, 255, .68);
+  background: var(--apple-material-heavy);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  backdrop-filter: blur(30px) saturate(180%);
+  box-shadow: 0 24px 70px var(--apple-shadow);
+}
+:root[data-theme="apple"] .modalHead { background: rgba(255, 255, 255, .68); -webkit-backdrop-filter: blur(22px) saturate(180%); backdrop-filter: blur(22px) saturate(180%); }
+
+:root[data-theme="apple"] {
+  scrollbar-color: rgba(60, 60, 67, .34) transparent;
+  scrollbar-width: thin;
+}
+:root[data-theme="apple"] ::-webkit-scrollbar { width: 10px; height: 10px; }
+:root[data-theme="apple"] ::-webkit-scrollbar-track { background: transparent; }
+:root[data-theme="apple"] ::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 999px; background: rgba(60, 60, 67, .30); background-clip: padding-box; }
+:root[data-theme="apple"] ::-webkit-scrollbar-thumb:hover { background-color: rgba(60, 60, 67, .48); }
+
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-theme="apple"] {
+    --apple-material: #f5f5f7;
+    --apple-material-heavy: #fff;
+    --tile: #fff;
+    --tile-soft: #f2f2f7;
+  }
+  :root[data-theme="apple"] :is(.tabs, .taskDesktopSidebar, .page-projects .workHeader, .modal, .modalWide, .toast, .page-projects .workTaskDrawer, .modalHead) {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root[data-theme="apple"] { --line: rgba(29, 29, 31, .52); --tile: #fff; --tile-soft: #f2f2f7; }
+  :root[data-theme="apple"] :is(.input, .modal, .modalWide, .toast) { border: 1px solid var(--line); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="apple"] :is(.primaryButton, .completeProject, .createFab, .profileThemeModes button):active { transform: none; }
+}
+
+@media (max-width: 760px) {
+  /* These wrappers are transparent layout surfaces, not elevated cards. A
+     diffuse shadow on them reveals their rectangular bounds on short pages. */
+  :root[data-theme="apple"] :is(.portfolioDigest, .taskDocument) { box-shadow: none; }
+
+  /* Creation actions belong to the scrolling form. Keeping them fixed makes
+     the whole bar jump when iOS changes the visual viewport for the keyboard. */
+  :root[data-theme="apple"] .mobileCreateForm.taskEditorForm { padding-bottom: 0; }
+  :root[data-theme="apple"] .mobileCreateForm.taskEditorForm .taskEditorActions {
+    position: static;
+    z-index: auto;
+    margin: 6px 0 0;
+    padding: 10px 0 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}

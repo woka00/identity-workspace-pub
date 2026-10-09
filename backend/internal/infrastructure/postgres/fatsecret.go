@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
-	"identity-workspace/internal/domain"
+	"avatar-id/internal/domain"
 )
 
 func (s *Repository) FatSecretConnection(ctx context.Context) (domain.FatSecretConnection, error) {

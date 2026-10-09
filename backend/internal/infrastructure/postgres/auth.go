@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"time"
 
-	"identity-workspace/internal/domain"
+	"avatar-id/internal/application"
+	"avatar-id/internal/domain"
 )
 
 func currentUserID(ctx context.Context) (int64, error) {
-	userID, err := domain.UserID(ctx)
+	userID, err := application.UserID(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("authentication required: %w", domain.ErrUnauthorized)
 	}
@@ -20,9 +21,9 @@ func currentUserID(ctx context.Context) (int64, error) {
 func (s *Repository) UserByLogin(ctx context.Context, normalized string) (domain.UserCredential, error) {
 	var credential domain.UserCredential
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, login, to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SSOF'), password_hash
+		SELECT id, login, to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SSOF'), is_admin, password_hash
 		FROM users WHERE login_normalized=$1 AND is_enabled=TRUE`, normalized).Scan(
-		&credential.ID, &credential.Login, &credential.CreatedAt, &credential.PasswordHash,
+		&credential.ID, &credential.Login, &credential.CreatedAt, &credential.IsAdmin, &credential.PasswordHash,
 	)
 	if err == sql.ErrNoRows {
 		return domain.UserCredential{}, domain.ErrNotFound
@@ -95,6 +96,21 @@ func (s *Repository) AdminSetUserEnabled(ctx context.Context, normalizedLogin st
 	return tx.Commit()
 }
 
+func (s *Repository) AdminSetUserAdmin(ctx context.Context, normalizedLogin string, enabled bool) error {
+	result, err := s.db.ExecContext(ctx, `UPDATE users SET is_admin=$2 WHERE login_normalized=$1`, normalizedLogin, enabled)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
 func (s *Repository) UnrotatedEnabledUsers(ctx context.Context) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT login FROM users
@@ -121,7 +137,8 @@ func (s *Repository) CreateSession(ctx context.Context, userID int64, tokenHash 
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM auth_sessions WHERE expires_at <= $1`, time.Now()); err != nil {
+	now := expiresAt.Add(-domain.AuthSessionIdleTimeout)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM auth_sessions WHERE expires_at <= $1 OR created_at <= $2`, now, now.Add(-domain.AuthSessionAbsoluteTimeout)); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -146,26 +163,41 @@ func (s *Repository) CreateSession(ctx context.Context, userID int64, tokenHash 
 
 func (s *Repository) UserBySession(ctx context.Context, tokenHash string, now time.Time) (domain.User, error) {
 	var user domain.User
+	var sessionID int64
+	var lastSeenAt, createdAt time.Time
 	err := s.db.QueryRowContext(ctx, `
-		SELECT account.id, account.login,
-		       to_char(account.created_at, 'YYYY-MM-DD"T"HH24:MI:SSOF')
+		SELECT session.id, session.last_seen_at, session.created_at,
+		       account.id, account.login,
+		       to_char(account.created_at, 'YYYY-MM-DD"T"HH24:MI:SSOF'), account.is_admin
 		FROM auth_sessions AS session
 		JOIN users AS account ON account.id=session.user_id
 		WHERE session.token_hash=$1
 		  AND session.expires_at>$2
 		  AND session.last_seen_at>$3
+		  AND session.created_at>$4
 		  AND account.is_enabled=TRUE`,
-		tokenHash, now, now.Add(-24*time.Hour),
-	).Scan(&user.ID, &user.Login, &user.CreatedAt)
+		tokenHash, now, now.Add(-domain.AuthSessionIdleTimeout), now.Add(-domain.AuthSessionAbsoluteTimeout),
+	).Scan(&sessionID, &lastSeenAt, &createdAt, &user.ID, &user.Login, &user.CreatedAt, &user.IsAdmin)
 	if err == sql.ErrNoRows {
 		return domain.User{}, domain.ErrUnauthorized
 	}
 	if err != nil {
 		return domain.User{}, err
 	}
-	_, _ = s.db.ExecContext(ctx, `
-		UPDATE auth_sessions SET last_seen_at=$2
-		WHERE token_hash=$1 AND last_seen_at<$3`, tokenHash, now, now.Add(-5*time.Minute))
+	if !lastSeenAt.After(now.Add(-domain.AuthSessionTouchInterval)) {
+		absoluteExpiry := createdAt.Add(domain.AuthSessionAbsoluteTimeout)
+		idleExpiry := now.Add(domain.AuthSessionIdleTimeout)
+		if idleExpiry.After(absoluteExpiry) {
+			idleExpiry = absoluteExpiry
+		}
+		if _, err := s.db.ExecContext(ctx, `
+			UPDATE auth_sessions
+			SET last_seen_at=$2, expires_at=$3
+			WHERE id=$1 AND last_seen_at<=$4`,
+			sessionID, now, idleExpiry, now.Add(-domain.AuthSessionTouchInterval)); err != nil {
+			return domain.User{}, err
+		}
+	}
 	return user, nil
 }
 

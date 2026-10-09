@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	requestMarkerHeader = "X-Identity-Workspace-Request"
+	requestMarkerHeader = "X-AVATAR-ID-Request"
 	maxLoginLimiterKeys = 10_000
 )
 
@@ -26,52 +26,6 @@ type loginAttempt struct {
 type loginRateLimiter struct {
 	mu      sync.Mutex
 	entries map[string]*loginAttempt
-}
-
-type userActionGuard struct {
-	mu          sync.Mutex
-	inFlight    map[int64]bool
-	nextAllowed map[int64]time.Time
-	cooldown    time.Duration
-}
-
-func newUserActionGuard(cooldown time.Duration) *userActionGuard {
-	return &userActionGuard{
-		inFlight:    make(map[int64]bool),
-		nextAllowed: make(map[int64]time.Time),
-		cooldown:    cooldown,
-	}
-}
-
-// begin prevents an authenticated user from queueing concurrent expensive
-// provider synchronizations and enforces a short server-side cooldown. The
-// frontend polls every 30 seconds, so a 15-second cooldown does not affect the
-// normal flow but bounds abuse by a stolen session.
-func (g *userActionGuard) begin(userID int64) (func(), time.Duration, bool) {
-	if userID <= 0 {
-		return func() {}, 0, false
-	}
-	now := time.Now()
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.inFlight[userID] {
-		return func() {}, 2 * time.Second, false
-	}
-	if next := g.nextAllowed[userID]; now.Before(next) {
-		return func() {}, next.Sub(now), false
-	}
-	g.inFlight[userID] = true
-	released := false
-	return func() {
-		g.mu.Lock()
-		defer g.mu.Unlock()
-		if released {
-			return
-		}
-		released = true
-		delete(g.inFlight, userID)
-		g.nextAllowed[userID] = time.Now().Add(g.cooldown)
-	}, 0, true
 }
 
 func newLoginRateLimiter() *loginRateLimiter {
@@ -218,16 +172,16 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		"base-uri 'self'",
 		"object-src 'none'",
 		"frame-ancestors 'none'",
-		"form-action 'self' https://authentication.fatsecret.com https://ticktick.com",
+		"form-action 'self' https://authentication.fatsecret.com",
 		"img-src 'self' data: blob:",
 		"style-src 'self' 'unsafe-inline'",
 		"script-src 'self' 'wasm-unsafe-eval'",
-		"connect-src 'self'",
+		"connect-src 'self' https://tessdata.projectnaptha.com",
 		"worker-src 'self' blob:",
 		"child-src 'self' blob:",
 		"font-src 'self' data:",
 		"manifest-src 'self'",
-		"media-src 'none'",
+		"media-src 'self' blob:",
 	}, "; ")
 	if s.config.Production {
 		csp += "; upgrade-insecure-requests"
@@ -237,7 +191,7 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()")
+		w.Header().Set("Permissions-Policy", "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()")
 		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
 		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
 		if s.config.Production {
@@ -256,7 +210,7 @@ func (s *Server) hostGuard(next http.Handler) http.Handler {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/healthz" && !strings.EqualFold(strings.TrimSpace(r.Host), s.publicHost) {
+		if r.URL.Path != "/healthz" && r.URL.Path != "/readyz" && !strings.EqualFold(strings.TrimSpace(r.Host), s.publicHost) {
 			http.Error(w, "неверный host", http.StatusMisdirectedRequest)
 			return
 		}
@@ -268,8 +222,7 @@ func (s *Server) csrf(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions ||
 			!strings.HasPrefix(r.URL.Path, "/api/") ||
-			r.URL.Path == "/api/integrations/fatsecret/callback" ||
-			r.URL.Path == "/api/integrations/ticktick/callback" {
+			r.URL.Path == "/api/integrations/fatsecret/callback" {
 			next.ServeHTTP(w, r)
 			return
 		}

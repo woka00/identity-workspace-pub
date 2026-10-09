@@ -3,7 +3,7 @@ package application
 import (
 	"testing"
 
-	"identity-workspace/internal/domain"
+	"avatar-id/internal/domain"
 )
 
 func TestNormalizeTrackerReminder(t *testing.T) {

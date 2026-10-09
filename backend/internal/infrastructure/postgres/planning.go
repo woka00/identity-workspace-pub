@@ -4,10 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
-	"identity-workspace/internal/domain"
+	"avatar-id/internal/domain"
 )
 
 func (s *Repository) TaskCategories(ctx context.Context) ([]domain.TaskCategory, error) {
@@ -193,20 +194,25 @@ func (s *Repository) StepCustomTracker(ctx context.Context, id int64, date strin
 		return domain.CustomTracker{}, err
 	}
 	defer tx.Rollback()
-	tracker, err := scanCustomTracker(tx.QueryRowContext(ctx, `
-		UPDATE user_custom_trackers
-		SET current_value=GREATEST(0, LEAST(target_value, current_value + step_value * $3)), updated_at=now()
+	tracker, err := scanCustomTracker(tx.QueryRowContext(ctx, customTrackerSelect+`
 		WHERE id=$1 AND user_id=$2
-		RETURNING id, name, target_value::double precision, step_value::double precision,
-		          current_value::double precision, icon,
-		          to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SSOF'),
-		          to_char(updated_at, 'YYYY-MM-DD"T"HH24:MI:SSOF')`, id, userID, direction))
+		FOR UPDATE`, id, userID))
 	if err == sql.ErrNoRows {
 		return domain.CustomTracker{}, fmt.Errorf("custom tracker: %w", domain.ErrNotFound)
 	}
 	if err != nil {
 		return domain.CustomTracker{}, err
 	}
+	var currentValue float64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COALESCE((
+			SELECT value::double precision
+			FROM user_custom_tracker_entries
+			WHERE user_id=$1 AND tracker_id=$2 AND tracked_on=$3::date
+		), 0)`, userID, tracker.ID, date).Scan(&currentValue); err != nil {
+		return domain.CustomTracker{}, err
+	}
+	tracker.CurrentValue = nextCustomTrackerValue(currentValue, tracker.StepValue, tracker.TargetValue, direction)
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO user_custom_tracker_entries (user_id, tracker_id, tracked_on, value, target_value)
 		VALUES ($1, $2, $3::date, $4, $5)
@@ -215,10 +221,29 @@ func (s *Repository) StepCustomTracker(ctx context.Context, id int64, date strin
 		userID, tracker.ID, date, tracker.CurrentValue, tracker.TargetValue); err != nil {
 		return domain.CustomTracker{}, err
 	}
+	if err := tx.QueryRowContext(ctx, `
+		UPDATE user_custom_trackers
+		SET current_value=$3, updated_at=now()
+		WHERE id=$1 AND user_id=$2
+		RETURNING to_char(updated_at, 'YYYY-MM-DD"T"HH24:MI:SSOF')`,
+		tracker.ID, userID, tracker.CurrentValue).Scan(&tracker.UpdatedAt); err != nil {
+		return domain.CustomTracker{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return domain.CustomTracker{}, err
 	}
 	return tracker, nil
+}
+
+func nextCustomTrackerValue(currentValue, stepValue, targetValue float64, direction int) float64 {
+	next := currentValue + stepValue*float64(direction)
+	if next < 0 {
+		next = 0
+	}
+	if next > targetValue {
+		next = targetValue
+	}
+	return math.Round(next*1000) / 1000
 }
 
 func (s *Repository) DeleteCustomTracker(ctx context.Context, id int64) error {

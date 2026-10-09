@@ -1,8 +1,9 @@
-# Environment and credentials
+# Environment, credentials and logs
 .env
 .env.*
 !.env.example
-secrets/
+!.env.production.example
+*.log
 *.pem
 *.key
 *.crt
@@ -10,38 +11,34 @@ secrets/
 *.p12
 *.pfx
 
-# Data, backups and user-generated content
+# Frontend build/dependencies
+frontend/node_modules/
+frontend/dist/
+frontend/tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# Desktop build/dependencies
+desktop/node_modules/
+desktop/dist/
+
+# Local backend binaries
+backend/avatar-id
+backend/avatar-id-server
+backend/server
+
+# Production secret files
+secrets/
+.env.production
+
+# Runtime backups and generated security reports
 backups/
 uploads/
 *.dump
 *.backup
 *.bak
 *.sql.gz
-
-# Dependencies and build output
-**/node_modules/
-**/dist/
-**/coverage/
-**/.cache/
-*.tsbuildinfo
-backend/identity-workspace-server
-
-# Logs and temporary files
-logs/
-*.log
-*.tmp
-*.temp
-*.swp
-*.swo
-*~
-.tmp/
-tmp/
-
-# Archives and generated reports
-*.zip
-*.tar
-*.tgz
 SECURITY_TEST_RESULTS/
+data/catalog/
 
 # Editors and operating systems
 .idea/
@@ -49,4 +46,3 @@ SECURITY_TEST_RESULTS/
 .fleet/
 .DS_Store
 Thumbs.db
-Desktop.ini

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'">
+    <title>Управление окном</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <div class="drag" title="Переместить окно" aria-hidden="true"></div>
+    <button id="minimize" type="button" title="Свернуть" aria-label="Свернуть">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 11h10"/></svg>
+    </button>
+    <button id="maximize" type="button" title="Развернуть" aria-label="Развернуть">
+      <svg class="maximize-icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9"/></svg>
+      <svg class="restore-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 5V2.5h7.5V10H11"/><rect x="2.5" y="5.5" width="8" height="8"/></svg>
+    </button>
+    <button id="close" type="button" title="Закрыть" aria-label="Закрыть">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg>
+    </button>
+  </body>
+</html>

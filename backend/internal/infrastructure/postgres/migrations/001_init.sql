@@ -1,11 +1,11 @@
--- Historical single-user profile schema retained for upgrade compatibility.
+-- AVATAR.ID — базовый однопользовательский профиль.
 -- Миграция приведена к финальной форме; последующие миграции остаются
 -- совместимыми с базами, созданными ранней RPG-версией приложения.
 CREATE TABLE IF NOT EXISTS state (
     id           INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-    name         TEXT NOT NULL DEFAULT 'DEMO',
+    name         TEXT NOT NULL DEFAULT 'EGOR',
     surname      TEXT NOT NULL DEFAULT '',
-    occupation   TEXT NOT NULL DEFAULT 'SOFTWARE DEVELOPER',
+    occupation   TEXT NOT NULL DEFAULT 'BACKEND-DEVELOPER',
     sex          TEXT NOT NULL DEFAULT '',
     dob          TEXT NOT NULL DEFAULT '',
     expiry       TEXT NOT NULL DEFAULT '',

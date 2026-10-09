@@ -8,7 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"identity-workspace/internal/domain"
+	"avatar-id/internal/domain"
 )
 
 func NormalizeTask(input domain.TaskInput, create bool) (domain.TaskInput, error) {
@@ -19,6 +19,24 @@ func NormalizeTask(input domain.TaskInput, create bool) (domain.TaskInput, error
 	input.DueDate = strings.TrimSpace(input.DueDate)
 	input.DueTime = strings.TrimSpace(input.DueTime)
 	input.ReminderAt = strings.TrimSpace(input.ReminderAt)
+	input.RecurrenceType = strings.ToLower(strings.TrimSpace(input.RecurrenceType))
+	input.RecurrenceEndDate = strings.TrimSpace(input.RecurrenceEndDate)
+	if len(input.ProjectIDs) > 100 {
+		return domain.TaskInput{}, invalidf("task can be attached to at most 100 projects")
+	}
+	projectIDs := make([]int64, 0, len(input.ProjectIDs))
+	seenProjectIDs := make(map[int64]struct{}, len(input.ProjectIDs))
+	for _, projectID := range input.ProjectIDs {
+		if projectID <= 0 {
+			return domain.TaskInput{}, invalidf("task projectIds must contain positive ids")
+		}
+		if _, exists := seenProjectIDs[projectID]; exists {
+			continue
+		}
+		seenProjectIDs[projectID] = struct{}{}
+		projectIDs = append(projectIDs, projectID)
+	}
+	input.ProjectIDs = projectIDs
 	if create && input.Status != "" && input.Status != "todo" {
 		return domain.TaskInput{}, invalidf("new task status must be todo")
 	}
@@ -58,6 +76,55 @@ func NormalizeTask(input domain.TaskInput, create bool) (domain.TaskInput, error
 	if input.Priority < 0 || input.Priority > 3 {
 		return domain.TaskInput{}, invalidf("task priority must be 0..3")
 	}
+	if input.RecurrenceType == "" {
+		input.RecurrenceInterval = 1
+		input.RecurrenceEndDate = ""
+		input.RecurrenceWeekdays = []int{}
+	} else {
+		if input.RecurrenceType != "daily" && input.RecurrenceType != "weekly" && input.RecurrenceType != "monthly" {
+			return domain.TaskInput{}, invalidf("task recurrenceType must be daily, weekly or monthly")
+		}
+		if input.DueDate == "" {
+			return domain.TaskInput{}, invalidf("recurring task requires dueDate")
+		}
+		if input.RecurrenceInterval < 1 || input.RecurrenceInterval > 365 {
+			return domain.TaskInput{}, invalidf("task recurrenceInterval must be 1..365")
+		}
+		if input.RecurrenceEndDate != "" {
+			if _, err := NormalizeDate(input.RecurrenceEndDate, "task recurrenceEndDate"); err != nil {
+				return domain.TaskInput{}, err
+			}
+			if input.RecurrenceEndDate < input.DueDate {
+				return domain.TaskInput{}, invalidf("task recurrenceEndDate must not precede dueDate")
+			}
+		}
+		if input.RecurrenceType == "weekly" {
+			weekdays := make([]int, 0, 7)
+			seen := [8]bool{}
+			for _, weekday := range input.RecurrenceWeekdays {
+				if weekday < 1 || weekday > 7 {
+					return domain.TaskInput{}, invalidf("task recurrenceWeekdays must contain days 1..7")
+				}
+				seen[weekday] = true
+			}
+			for weekday := 1; weekday <= 7; weekday++ {
+				if seen[weekday] {
+					weekdays = append(weekdays, weekday)
+				}
+			}
+			if len(weekdays) == 0 {
+				dueDate, _ := time.Parse("2006-01-02", input.DueDate)
+				weekday := int(dueDate.Weekday())
+				if weekday == 0 {
+					weekday = 7
+				}
+				weekdays = []int{weekday}
+			}
+			input.RecurrenceWeekdays = weekdays
+		} else {
+			input.RecurrenceWeekdays = []int{}
+		}
+	}
 	input.IsMilestone = input.Priority == 3
 	if input.DueDate == "" && input.Category == "" {
 		return domain.TaskInput{}, invalidf("task category is required when dueDate is empty")
@@ -94,6 +161,22 @@ func ValidateWater(glasses, goalGlasses int) error {
 func ValidateCalorieGoal(calorieGoal int) error {
 	if calorieGoal < 500 || calorieGoal > 10000 {
 		return invalidf("calorieGoal must be between 500 and 10000")
+	}
+	return nil
+}
+
+func ValidateNutritionGoals(goals domain.NutritionGoals) error {
+	if err := ValidateCalorieGoal(goals.CalorieGoal); err != nil {
+		return err
+	}
+	if goals.ProteinGoal < 1 || goals.ProteinGoal > 1000 {
+		return invalidf("proteinGoal must be between 1 and 1000")
+	}
+	if goals.FatGoal < 1 || goals.FatGoal > 1000 {
+		return invalidf("fatGoal must be between 1 and 1000")
+	}
+	if goals.CarbohydrateGoal < 1 || goals.CarbohydrateGoal > 1000 {
+		return invalidf("carbohydrateGoal must be between 1 and 1000")
 	}
 	return nil
 }
@@ -153,14 +236,58 @@ func NormalizeProfile(profile domain.Profile) (domain.Profile, error) {
 	profile.Surname = strings.ToUpper(strings.TrimSpace(profile.Surname))
 	profile.Occupation = strings.ToUpper(strings.TrimSpace(profile.Occupation))
 	profile.Sex = strings.ToUpper(strings.TrimSpace(profile.Sex))
-	profile.DOB = strings.TrimSpace(profile.DOB)
-	profile.Expiry = strings.TrimSpace(profile.Expiry)
+	profile.DOB = normalizeCompactProfileDate(profile.DOB)
+	profile.Expiry = fixedCardExpiryDate
 	if profile.Name == "" || utf8.RuneCountInString(profile.Name) > 24 || utf8.RuneCountInString(profile.Surname) > 28 ||
 		utf8.RuneCountInString(profile.Occupation) > 32 || utf8.RuneCountInString(profile.Sex) > 16 ||
 		utf8.RuneCountInString(profile.DOB) > 16 || utf8.RuneCountInString(profile.Expiry) > 16 {
 		return domain.Profile{}, invalidf("invalid profile field length")
 	}
 	return profile, nil
+}
+
+func NormalizeBottomNavigation(items []string) ([]string, error) {
+	if len(items) < 2 || len(items) > 6 {
+		return nil, invalidf("bottom navigation must contain between two and six items")
+	}
+	allowed := map[string]bool{
+		"card": true, "tasks": true, "projects": true,
+		"tracker": true, "calories": true, "profile": true,
+	}
+	seen := make(map[string]bool, len(items))
+	normalized := make([]string, len(items))
+	for index, item := range items {
+		item = strings.TrimSpace(item)
+		if !allowed[item] {
+			return nil, invalidf("unknown bottom navigation item %q", item)
+		}
+		if seen[item] {
+			return nil, invalidf("bottom navigation contains duplicate item %q", item)
+		}
+		seen[item] = true
+		normalized[index] = item
+	}
+	for _, required := range []string{"card", "profile"} {
+		if !seen[required] {
+			return nil, invalidf("bottom navigation must contain %q", required)
+		}
+	}
+	return normalized, nil
+}
+
+const fixedCardExpiryDate = "13.07.2106"
+
+func normalizeCompactProfileDate(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) != 8 {
+		return value
+	}
+	for _, character := range value {
+		if character < '0' || character > '9' {
+			return value
+		}
+	}
+	return value[:2] + "." + value[2:4] + "." + value[4:]
 }
 
 func invalidf(format string, args ...any) error {

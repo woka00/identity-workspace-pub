@@ -4,8 +4,11 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -18,7 +21,8 @@ const (
 )
 
 type SecretCipher struct {
-	aead cipher.AEAD
+	aead          cipher.AEAD
+	emailIndexKey []byte
 }
 
 // NewSecretCipher accepts a base64-encoded 32-byte AES-256 key.
@@ -51,7 +55,18 @@ func NewSecretCipher(encodedKey string) (*SecretCipher, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create secret AEAD: %w", err)
 	}
-	return &SecretCipher{aead: aead}, nil
+	indexMAC := hmac.New(sha256.New, key)
+	indexMAC.Write([]byte("identity-workspace:email-index-key:v1"))
+	return &SecretCipher{aead: aead, emailIndexKey: indexMAC.Sum(nil)}, nil
+}
+
+func (c *SecretCipher) emailFingerprint(email string) (string, error) {
+	if c == nil || len(c.emailIndexKey) != 32 {
+		return "", errors.New("email storage requires DATA_ENCRYPTION_KEY")
+	}
+	mac := hmac.New(sha256.New, c.emailIndexKey)
+	mac.Write([]byte(email))
+	return hex.EncodeToString(mac.Sum(nil)), nil
 }
 
 func (c *SecretCipher) Encrypt(plaintext string) (string, error) {
@@ -107,7 +122,7 @@ func (c *SecretCipher) DecryptFor(purpose, value string) (string, error) {
 }
 
 func secretAAD(purpose string) []byte {
-	return []byte("identity-workspace-secret:v2:" + purpose)
+	return []byte("avatar-id-secret:v2:" + purpose)
 }
 
 func isEncryptedSecret(value string) bool {
@@ -160,10 +175,6 @@ func fatSecretRequestPurpose(oauthToken string) string {
 	return "fatsecret:request:" + oauthToken + ":secret"
 }
 
-func tickTickTokenPurpose(userID int64) string {
-	return fmt.Sprintf("ticktick:connection:%d:token", userID)
-}
-
 // ReencryptLegacySecrets upgrades existing plaintext OAuth credentials in place.
 func (s *Repository) ReencryptLegacySecrets(ctx context.Context) error {
 	if s.secretCipher == nil {
@@ -179,11 +190,6 @@ func (s *Repository) ReencryptLegacySecrets(ctx context.Context) error {
 		token  string
 		secret string
 	}
-	type tickTickConnection struct {
-		userID int64
-		token  string
-	}
-
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -232,27 +238,6 @@ func (s *Repository) ReencryptLegacySecrets(ctx context.Context) error {
 		return err
 	}
 
-	var tickTickConnections []tickTickConnection
-	rows, err = tx.QueryContext(ctx, `SELECT user_id, access_token FROM user_ticktick_connections FOR UPDATE`)
-	if err != nil {
-		return fmt.Errorf("read TickTick connections: %w", err)
-	}
-	for rows.Next() {
-		var row tickTickConnection
-		if err := rows.Scan(&row.userID, &row.token); err != nil {
-			rows.Close()
-			return err
-		}
-		tickTickConnections = append(tickTickConnections, row)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return err
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-
 	for _, row := range fatSecretConnections {
 		tokenPurpose := fatSecretTokenPurpose(row.userID)
 		secretPurpose := fatSecretSecretPurpose(row.userID)
@@ -281,19 +266,6 @@ func (s *Repository) ReencryptLegacySecrets(ctx context.Context) error {
 			continue
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE user_fatsecret_oauth_requests SET oauth_token_secret=$2 WHERE oauth_token=$1`, row.token, encSecret); err != nil {
-			return err
-		}
-	}
-	for _, row := range tickTickConnections {
-		purpose := tickTickTokenPurpose(row.userID)
-		encToken, err := s.upgradeSecret(purpose, row.token)
-		if err != nil {
-			return fmt.Errorf("decrypt TickTick token for user %d: %w", row.userID, err)
-		}
-		if encToken == row.token {
-			continue
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE user_ticktick_connections SET access_token=$2 WHERE user_id=$1`, row.userID, encToken); err != nil {
 			return err
 		}
 	}

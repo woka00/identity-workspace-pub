@@ -1,11 +1,13 @@
+# Development/single-host base configuration. Production uses the additional
+# docker-compose.prod.yml overlay and a reverse proxy terminating HTTPS.
 services:
   db:
     image: postgres:16.14-alpine3.24
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-identity}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-identity-local-only}
-      POSTGRES_DB: ${POSTGRES_DB:-identity_workspace}
+      POSTGRES_USER: ${POSTGRES_USER:-avatar}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-avatar}
+      POSTGRES_DB: ${POSTGRES_DB:-avatarid}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -16,6 +18,11 @@ services:
       start_period: 10s
     security_opt:
       - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     networks:
       - database
 
@@ -26,22 +33,28 @@ services:
     init: true
     environment:
       APP_ENV: ${APP_ENV:-development}
-      DATABASE_URL: ${DATABASE_URL:-postgres://identity:identity-local-only@db:5432/identity_workspace?sslmode=disable}
+      DATABASE_URL: ${DATABASE_URL:-postgres://avatar:avatar@db:5432/avatarid?sslmode=disable}
+      DB_MAX_OPEN_CONNS: ${DB_MAX_OPEN_CONNS:-15}
+      DB_MAX_IDLE_CONNS: ${DB_MAX_IDLE_CONNS:-5}
       PLAYER_TZ: ${PLAYER_TZ:-Europe/Moscow}
       ADDR: :8080
-      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
       TRUST_PROXY: ${TRUST_PROXY:-false}
       RUN_MIGRATIONS: ${RUN_MIGRATIONS:-true}
       DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:-}
+      REGISTRATION_ENABLED: ${REGISTRATION_ENABLED:-false}
+      BREVO_API_KEY: ${BREVO_API_KEY:-}
+      BREVO_SENDER_EMAIL: ${BREVO_SENDER_EMAIL:-}
+      BREVO_SENDER_NAME: ${BREVO_SENDER_NAME:-identity workspace}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
-      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@localhost}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
       FATSECRET_CONSUMER_KEY: ${FATSECRET_CONSUMER_KEY:-}
       FATSECRET_CONSUMER_SECRET: ${FATSECRET_CONSUMER_SECRET:-}
-      FATSECRET_CALLBACK_URL: ${FATSECRET_CALLBACK_URL:-http://localhost:8080/api/integrations/fatsecret/callback}
-      TICKTICK_CLIENT_ID: ${TICKTICK_CLIENT_ID:-}
-      TICKTICK_CLIENT_SECRET: ${TICKTICK_CLIENT_SECRET:-}
-      TICKTICK_CALLBACK_URL: ${TICKTICK_CALLBACK_URL:-http://localhost:8080/api/integrations/ticktick/callback}
+      FATSECRET_CALLBACK_URL: ${FATSECRET_CALLBACK_URL:-}
+      FATSECRET_REGION: ${FATSECRET_REGION:-RU}
+      FATSECRET_LANGUAGE: ${FATSECRET_LANGUAGE:-ru}
+      OPENFOODFACTS_USER_AGENT: ${OPENFOODFACTS_USER_AGENT:-identity-workspace/1.0 (admin@localhost)}
       STATIC_DIR: /app/static
     ports:
       - "127.0.0.1:${APP_PORT:-8080}:8080"
@@ -50,7 +63,7 @@ services:
         condition: service_healthy
     read_only: true
     tmpfs:
-      - /tmp:size=32m,mode=1777
+      - /tmp:size=128m,mode=1777
     cap_drop:
       - ALL
     security_opt:
@@ -58,11 +71,16 @@ services:
     pids_limit: 128
     stop_grace_period: 20s
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/readyz"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     networks:
       - database
       - outbound

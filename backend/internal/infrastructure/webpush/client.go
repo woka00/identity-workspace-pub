@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	"identity-workspace/internal/domain"
+	"avatar-id/internal/domain"
 )
 
 const maxPayloadBytes = 3000
@@ -105,7 +105,7 @@ func privateKeyBytes(value, derivationSecret string) ([]byte, error) {
 		return nil, nil
 	}
 	mac := hmac.New(sha256.New, []byte(derivationSecret))
-	_, _ = mac.Write([]byte("Identity Workspace/VAPID/P-256/v1"))
+	_, _ = mac.Write([]byte("AVATAR.ID/VAPID/P-256/v1"))
 	return mac.Sum(nil), nil
 }
 

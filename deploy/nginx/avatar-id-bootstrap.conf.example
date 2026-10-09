@@ -1,0 +1,17 @@
+# Temporary HTTP-only configuration used before the first TLS certificate is
+# issued. Replace avatar.example.com, enable it, obtain the certificate through
+# the webroot /var/www/certbot, then replace this file with avatar-id.conf.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name avatar.example.com;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type text/plain;
+    }
+
+    location / {
+        return 503;
+    }
+}

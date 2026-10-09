@@ -1,5 +1,5 @@
 -- Production security metadata. Existing migrations remain immutable and compatible.
--- Bootstrap development passwords are considered unsafe for public deployment until the
+-- Bootstrap preview passwords are considered unsafe for public deployment until the
 -- owner rotates or disables every enabled account through the admin CLI.
 ALTER TABLE users
     ADD COLUMN IF NOT EXISTS password_rotated_at TIMESTAMPTZ;

@@ -1,4 +1,4 @@
-module identity-workspace
+module avatar-id
 
 go 1.22
 

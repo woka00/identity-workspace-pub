@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
+	"strings"
 	"time"
 
-	"identity-workspace/internal/domain"
+	"avatar-id/internal/domain"
 )
 
 type Repository interface {
+	Ping(context.Context) error
 	UserByLogin(context.Context, string) (domain.UserCredential, error)
 	UpdatePasswordHash(context.Context, int64, string) error
 	CreateSession(context.Context, int64, string, time.Time) error
@@ -19,18 +20,27 @@ type Repository interface {
 
 	Profile(context.Context) (domain.Profile, error)
 	UpdateProfile(context.Context, domain.Profile) error
+	UpdateWorkProfile(context.Context, domain.WorkProfileInput) error
 	SetPhoto(context.Context, string) error
 	SetSignature(context.Context, string) error
+	BottomNavigation(context.Context) ([]string, error)
+	UpdateBottomNavigation(context.Context, []string) error
+	WorkspacePreferences(context.Context) (domain.WorkspacePreferences, error)
+	UpdateWorkspacePreferences(context.Context, domain.WorkspacePreferences) error
 
 	Trackers(context.Context) (domain.TrackerState, error)
 	UpsertTrackerWeight(context.Context, string, float64) (domain.TrackerWeightEntry, error)
 	UpsertTrackerWater(context.Context, string, int, int) (domain.TrackerWaterEntry, error)
-	UpdateCalorieGoal(context.Context, int) (int, error)
+	UpdateNutritionGoals(context.Context, domain.NutritionGoals) (domain.NutritionGoals, error)
 	CustomTrackers(context.Context) ([]domain.CustomTracker, error)
 	CreateCustomTracker(context.Context, domain.CustomTrackerInput) (domain.CustomTracker, error)
 	UpdateCustomTracker(context.Context, int64, domain.CustomTrackerInput) (domain.CustomTracker, error)
 	StepCustomTracker(context.Context, int64, string, int) (domain.CustomTracker, error)
 	DeleteCustomTracker(context.Context, int64) error
+	GitHubTracker(context.Context) (domain.GitHubTrackerRecord, error)
+	UpsertGitHubTracker(context.Context, string) error
+	CacheGitHubTracker(context.Context, string, domain.GitHubTrackerState) error
+	DeleteGitHubTracker(context.Context) error
 
 	TaskCategories(context.Context) ([]domain.TaskCategory, error)
 	CreateTaskCategory(context.Context, string) (domain.TaskCategory, error)
@@ -39,8 +49,10 @@ type Repository interface {
 	Tasks(context.Context) ([]domain.Task, error)
 	ActiveTasks(context.Context) ([]domain.Task, error)
 	CreateTask(context.Context, domain.TaskInput) (domain.Task, error)
+	CreateRecurringTask(context.Context, int64, domain.TaskInput) (domain.Task, bool, error)
 	UpdateTask(context.Context, int64, domain.TaskInput) (domain.Task, error)
 	SetTaskCompleted(context.Context, int64, bool) (domain.Task, error)
+	SwapTaskOrder(context.Context, int64, int64) error
 	DeleteTask(context.Context, int64) error
 
 	Goal(context.Context, int64) (domain.Goal, error)
@@ -57,16 +69,22 @@ type Repository interface {
 	SaveFatSecretConnection(context.Context, int64, string, string) error
 	DeleteFatSecretConnection(context.Context) error
 
-	TickTickConnection(context.Context) (domain.TickTickConnection, error)
-	SaveTickTickOAuthState(context.Context, domain.TickTickOAuthState) error
-	ConsumeTickTickOAuthState(context.Context, string) (domain.TickTickOAuthState, error)
-	SaveTickTickConnection(context.Context, int64, string, string, string) error
-	DeleteTickTickConnection(context.Context) error
-	TickTickTaskLink(context.Context, int64) (domain.TickTickTaskLink, error)
-	SaveTickTickTaskLink(context.Context, domain.TickTickTaskLink) error
-	TickTickPendingTasks(context.Context) ([]domain.Task, error)
-	ApplyTickTickSnapshot(context.Context, []domain.TickTickRemoteTask) (domain.TickTickPullResult, error)
-	TickTickSyncCounts(context.Context) (int, int, error)
+	SearchFoodCatalog(context.Context, string, int) ([]domain.FoodCatalogItem, bool, error)
+	RecentFoodCatalog(context.Context, string) ([]domain.FoodCatalogItem, error)
+	FoodCatalogItem(context.Context, string) (domain.FoodCatalogItem, error)
+	FoodCatalogByBarcode(context.Context, string) (domain.FoodCatalogItem, error)
+	FoodCatalogCandidates(context.Context, domain.FoodCatalogCandidateInput) ([]domain.FoodCatalogItem, error)
+	LinkFoodCatalogBarcode(context.Context, string, string) (domain.FoodCatalogItem, error)
+	DeleteFoodCatalog(context.Context, string) error
+	AdminFoodCatalog(context.Context, int, bool) (domain.FoodCatalogReviewPage, error)
+	UpdateAdminFoodCatalog(context.Context, int64, domain.FoodCatalogReviewInput) (domain.FoodCatalogReviewItem, error)
+	PromoteFoodCatalogItem(context.Context, int64) (domain.FoodCatalogItem, error)
+	RejectFoodCatalogItem(context.Context, int64) error
+	UpsertFoodCatalog(context.Context, domain.FoodCatalogItem) (domain.FoodCatalogItem, error)
+	Nutrition(context.Context, string) (domain.Nutrition, error)
+	CreateNutritionEntry(context.Context, domain.LocalNutritionEntryInput) (domain.Nutrition, error)
+	UpdateNutritionEntry(context.Context, int64, domain.LocalNutritionEntryInput) (domain.Nutrition, error)
+	DeleteNutritionEntry(context.Context, int64, string) (domain.Nutrition, error)
 
 	SavePushSubscription(context.Context, domain.PushSubscriptionInput, string) error
 	DeletePushSubscription(context.Context, string) error
@@ -83,29 +101,40 @@ type FatSecretGateway interface {
 	RequestToken(context.Context, string) (string, string, error)
 	AccessToken(context.Context, string, string, string) (string, string, error)
 	Nutrition(context.Context, string, string, string) (domain.Nutrition, error)
+	SearchFoods(context.Context, string, string, string, int) (domain.FoodSearchPage, error)
+	Food(context.Context, string, string, string) (domain.Food, error)
+	BarcodeFood(context.Context, string) (domain.Food, error)
+	RecentFoods(context.Context, string, string, string) ([]domain.Food, error)
+	CreateFoodEntry(context.Context, string, string, domain.FoodEntryInput) error
+	UpdateFoodEntry(context.Context, string, string, string, domain.FoodEntryUpdate) error
+	DeleteFoodEntry(context.Context, string, string, string) error
+}
+
+type FoodCatalogGateway interface {
+	Search(context.Context, string, int) ([]domain.FoodCatalogItem, bool, error)
+	Barcode(context.Context, string) (domain.FoodCatalogItem, error)
 }
 
 type Service struct {
-	repo      Repository
-	fatSecret FatSecretGateway
-	tickTick  TickTickGateway
-	push      PushGateway
-	now       func() time.Time
+	registration *Registration
+	repo         Repository
+	fatSecret    FatSecretGateway
+	push         PushGateway
+	github       GitHubGateway
+	foodCatalog  FoodCatalogGateway
+	now          func() time.Time
+}
 
-	tickTickLocksMu sync.Mutex
-	tickTickLocks   map[int64]*sync.Mutex
+func (s *Service) WithFoodCatalog(gateway FoodCatalogGateway) *Service {
+	s.foodCatalog = gateway
+	return s
 }
 
 func New(repo Repository, fatSecret FatSecretGateway, now func() time.Time) *Service {
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{repo: repo, fatSecret: fatSecret, now: now, tickTickLocks: make(map[int64]*sync.Mutex)}
-}
-
-func (s *Service) WithTickTick(gateway TickTickGateway) *Service {
-	s.tickTick = gateway
-	return s
+	return &Service{repo: repo, fatSecret: fatSecret, now: now}
 }
 
 func (s *Service) WithPush(gateway PushGateway) *Service {
@@ -113,9 +142,24 @@ func (s *Service) WithPush(gateway PushGateway) *Service {
 	return s
 }
 
+func (s *Service) WithGitHub(gateway GitHubGateway) *Service {
+	s.github = gateway
+	return s
+}
+
 func (s *Service) Today() string { return s.now().Format("2006-01-02") }
 
 func (s *Service) State(ctx context.Context) (domain.State, error) {
+	return s.state(ctx, true)
+}
+
+func (s *Service) StateWithoutActiveTasks(ctx context.Context) (domain.State, error) {
+	return s.state(ctx, false)
+}
+
+func (s *Service) Ready(ctx context.Context) error { return s.repo.Ping(ctx) }
+
+func (s *Service) state(ctx context.Context, includeActiveTasks bool) (domain.State, error) {
 	profile, err := s.repo.Profile(ctx)
 	if err != nil {
 		return domain.State{}, err
@@ -126,15 +170,32 @@ func (s *Service) State(ctx context.Context) (domain.State, error) {
 	if err := validatePhotoDataURL(profile.Photo); err != nil {
 		profile.Photo = ""
 	}
+	if profile.WorkAvatar != "" {
+		if err := validatePhotoDataURL(profile.WorkAvatar); err != nil {
+			profile.WorkAvatar = ""
+		}
+	}
 	if err := validateSignatureDataURL(profile.Signature); err != nil {
 		profile.Signature = ""
 	}
-	tasks, err := s.repo.ActiveTasks(ctx)
+	profile.Expiry = fixedCardExpiryDate
+	tasks := []domain.Task{}
+	if includeActiveTasks {
+		tasks, err = s.repo.ActiveTasks(ctx)
+		if err != nil {
+			return domain.State{}, err
+		}
+	}
+	bottomNavigation, err := s.repo.BottomNavigation(ctx)
+	if err != nil {
+		return domain.State{}, err
+	}
+	preferences, err := s.repo.WorkspacePreferences(ctx)
 	if err != nil {
 		return domain.State{}, err
 	}
 	return domain.State{
-		Profile: profile, ActiveTasks: tasks, CurrentDate: s.Today(),
+		Profile: profile, ActiveTasks: tasks, CurrentDate: s.Today(), BottomNavigation: bottomNavigation, WorkspacePreferences: preferences,
 	}, nil
 }
 
@@ -212,14 +273,36 @@ func (s *Service) Nutrition(ctx context.Context, date string) (domain.Nutrition,
 }
 
 func (s *Service) Trackers(ctx context.Context) (domain.TrackerState, error) {
-	return s.repo.Trackers(ctx)
+	state, err := s.repo.Trackers(ctx)
+	if err != nil {
+		return domain.TrackerState{}, err
+	}
+	return customTrackerStateForDate(state, s.Today()), nil
 }
 
-func (s *Service) UpdateCalorieGoal(ctx context.Context, calorieGoal int) (int, error) {
-	if err := ValidateCalorieGoal(calorieGoal); err != nil {
-		return 0, err
+func customTrackerStateForDate(state domain.TrackerState, date string) domain.TrackerState {
+	values := make(map[int64]domain.CustomTrackerEntry, len(state.CustomHistory))
+	for _, entry := range state.CustomHistory {
+		if entry.Date == date {
+			values[entry.TrackerID] = entry
+		}
 	}
-	return s.repo.UpdateCalorieGoal(ctx, calorieGoal)
+	for index := range state.CustomTrackers {
+		tracker := &state.CustomTrackers[index]
+		tracker.CurrentValue = 0
+		if entry, ok := values[tracker.ID]; ok {
+			tracker.CurrentValue = entry.Value
+			tracker.UpdatedAt = entry.UpdatedAt
+		}
+	}
+	return state
+}
+
+func (s *Service) UpdateNutritionGoals(ctx context.Context, goals domain.NutritionGoals) (domain.NutritionGoals, error) {
+	if err := ValidateNutritionGoals(goals); err != nil {
+		return domain.NutritionGoals{}, err
+	}
+	return s.repo.UpdateNutritionGoals(ctx, goals)
 }
 
 func (s *Service) UpsertWeight(ctx context.Context, date string, weightKg float64) (domain.TrackerWeightEntry, error) {
@@ -256,7 +339,7 @@ func (s *Service) CreateTask(ctx context.Context, input domain.TaskInput) (domai
 	if err != nil {
 		return domain.Task{}, err
 	}
-	return s.syncTickTickTaskBestEffort(ctx, task, true), nil
+	return task, nil
 }
 
 func (s *Service) UpdateTask(ctx context.Context, id int64, input domain.TaskInput) (domain.Task, error) {
@@ -271,7 +354,12 @@ func (s *Service) UpdateTask(ctx context.Context, id int64, input domain.TaskInp
 	if err != nil {
 		return domain.Task{}, err
 	}
-	return s.syncTickTickTaskBestEffort(ctx, task, false), nil
+	if task.Status == "done" {
+		if err := s.createNextRecurringTask(ctx, task); err != nil {
+			return domain.Task{}, err
+		}
+	}
+	return task, nil
 }
 
 func (s *Service) SetTaskCompleted(ctx context.Context, id int64, completed bool) (domain.Task, error) {
@@ -282,26 +370,111 @@ func (s *Service) SetTaskCompleted(ctx context.Context, id int64, completed bool
 	if err != nil {
 		return domain.Task{}, err
 	}
-	return s.syncTickTickTaskBestEffort(ctx, task, false), nil
+	if !completed {
+		return task, nil
+	}
+	if err := s.createNextRecurringTask(ctx, task); err != nil {
+		return domain.Task{}, err
+	}
+	return task, nil
+}
+
+func (s *Service) SwapTaskOrder(ctx context.Context, id, otherID int64) ([]domain.Task, error) {
+	if id <= 0 || otherID <= 0 || id == otherID {
+		return nil, invalidf("invalid task order")
+	}
+	if err := s.repo.SwapTaskOrder(ctx, id, otherID); err != nil {
+		return nil, err
+	}
+	return s.repo.Tasks(ctx)
+}
+
+func (s *Service) createNextRecurringTask(ctx context.Context, task domain.Task) error {
+	if task.RecurrenceType == "" {
+		return nil
+	}
+	nextInput, ok := nextRecurringTaskInput(task)
+	if !ok {
+		return nil
+	}
+	_, _, err := s.repo.CreateRecurringTask(ctx, task.ID, nextInput)
+	return err
+}
+
+func nextRecurringTaskInput(task domain.Task) (domain.TaskInput, bool) {
+	dueDate, err := time.Parse("2006-01-02", task.DueDate)
+	if err != nil || task.RecurrenceInterval < 1 {
+		return domain.TaskInput{}, false
+	}
+	var nextDate time.Time
+	switch task.RecurrenceType {
+	case "daily":
+		nextDate = dueDate.AddDate(0, 0, task.RecurrenceInterval)
+	case "weekly":
+		nextDate = nextWeeklyRecurrenceDate(dueDate, task.RecurrenceInterval, task.RecurrenceWeekdays)
+	case "monthly":
+		nextDate = addMonthsClamped(dueDate, task.RecurrenceInterval)
+	default:
+		return domain.TaskInput{}, false
+	}
+	nextDateKey := nextDate.Format("2006-01-02")
+	if task.RecurrenceEndDate != "" && nextDateKey > task.RecurrenceEndDate {
+		return domain.TaskInput{}, false
+	}
+	reminderAt := ""
+	if reminder, reminderErr := time.Parse(time.RFC3339, task.ReminderAt); reminderErr == nil {
+		years, months, days := dateDifference(dueDate, nextDate)
+		reminderAt = reminder.AddDate(years, months, days).UTC().Format(time.RFC3339)
+	}
+	return domain.TaskInput{
+		Title: task.Title, Description: task.Description, Category: task.Category,
+		Status: "todo", DueDate: nextDateKey, DueTime: task.DueTime,
+		ReminderAt: reminderAt, Priority: task.Priority, IsMilestone: task.IsMilestone,
+		RecurrenceType: task.RecurrenceType, RecurrenceInterval: task.RecurrenceInterval,
+		RecurrenceEndDate: task.RecurrenceEndDate, RecurrenceWeekdays: task.RecurrenceWeekdays,
+	}, true
+}
+
+func nextWeeklyRecurrenceDate(date time.Time, interval int, weekdays []int) time.Time {
+	currentWeekday := int(date.Weekday())
+	if currentWeekday == 0 {
+		currentWeekday = 7
+	}
+	for _, weekday := range weekdays {
+		if weekday > currentWeekday {
+			return date.AddDate(0, 0, weekday-currentWeekday)
+		}
+	}
+	firstWeekday := currentWeekday
+	if len(weekdays) > 0 {
+		firstWeekday = weekdays[0]
+	}
+	daysUntilNextCycle := (7 - currentWeekday) + firstWeekday + (interval-1)*7
+	return date.AddDate(0, 0, daysUntilNextCycle)
+}
+
+func addMonthsClamped(date time.Time, months int) time.Time {
+	firstOfTarget := time.Date(date.Year(), date.Month()+time.Month(months), 1, 0, 0, 0, 0, date.Location())
+	lastDay := firstOfTarget.AddDate(0, 1, -1).Day()
+	day := date.Day()
+	if day > lastDay {
+		day = lastDay
+	}
+	return time.Date(firstOfTarget.Year(), firstOfTarget.Month(), day, 0, 0, 0, 0, date.Location())
+}
+
+func dateDifference(from, to time.Time) (years, months, days int) {
+	if from.Day() == to.Day() {
+		return to.Year() - from.Year(), int(to.Month() - from.Month()), 0
+	}
+	return 0, 0, int(to.Sub(from).Hours() / 24)
 }
 
 func (s *Service) DeleteTask(ctx context.Context, id int64) error {
 	if id <= 0 {
 		return invalidf("invalid task id")
 	}
-	unlock := s.lockTickTick(ctx)
-	defer unlock()
-	var connection domain.TickTickConnection
-	var link domain.TickTickTaskLink
-	connection, connectionErr := s.repo.TickTickConnection(ctx)
-	link, linkErr := s.repo.TickTickTaskLink(ctx, id)
-	if err := s.repo.DeleteTask(ctx, id); err != nil {
-		return err
-	}
-	if s.tickTick != nil && connectionErr == nil && linkErr == nil && link.TickTickTaskID != "" {
-		_ = s.tickTick.DeleteTask(ctx, connection.AccessToken, link.ProjectID, link.TickTickTaskID)
-	}
-	return nil
+	return s.repo.DeleteTask(ctx, id)
 }
 
 func (s *Service) Goal(ctx context.Context, id int64) (domain.Goal, error) {
@@ -368,6 +541,27 @@ func (s *Service) UpdateProfile(ctx context.Context, profile domain.Profile) err
 		return err
 	}
 	return s.repo.UpdateProfile(ctx, profile)
+}
+
+func (s *Service) UpdateWorkProfile(ctx context.Context, input domain.WorkProfileInput) error {
+	input.DisplayName = strings.TrimSpace(input.DisplayName)
+	if len([]rune(input.DisplayName)) > 80 {
+		return invalidf("ник должен содержать не более 80 символов")
+	}
+	if input.Avatar != "" {
+		if err := validatePhotoDataURL(input.Avatar); err != nil {
+			return err
+		}
+	}
+	return s.repo.UpdateWorkProfile(ctx, input)
+}
+
+func (s *Service) UpdateBottomNavigation(ctx context.Context, items []string) error {
+	items, err := NormalizeBottomNavigation(items)
+	if err != nil {
+		return err
+	}
+	return s.repo.UpdateBottomNavigation(ctx, items)
 }
 
 func (s *Service) UpdatePhoto(ctx context.Context, dataURL string) error {

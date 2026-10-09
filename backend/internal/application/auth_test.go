@@ -5,9 +5,38 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
-	"identity-workspace/internal/domain"
+	"avatar-id/internal/domain"
 )
+
+type authRepoStub struct {
+	Repository
+	expiresAt time.Time
+}
+
+func (r *authRepoStub) CreateSession(_ context.Context, _ int64, _ string, expiresAt time.Time) error {
+	r.expiresAt = expiresAt
+	return nil
+}
+
+func TestSessionUsesSevenDayIdleTimeout(t *testing.T) {
+	now := time.Date(2026, time.August, 25, 12, 0, 0, 0, time.UTC)
+	repo := &authRepoStub{}
+	service := New(repo, nil, func() time.Time { return now })
+
+	session, err := service.createSession(context.Background(), domain.User{ID: 1, Login: "user"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := now.Add(domain.AuthSessionIdleTimeout)
+	if !repo.expiresAt.Equal(want) {
+		t.Fatalf("stored expiry=%s, want %s", repo.expiresAt, want)
+	}
+	if session.ExpiresAt != want.Format(time.RFC3339) {
+		t.Fatalf("response expiry=%q, want %q", session.ExpiresAt, want.Format(time.RFC3339))
+	}
+}
 
 func TestPasswordHashRoundTrip(t *testing.T) {
 	hash, err := hashPassword("correct horse battery staple")
@@ -49,7 +78,7 @@ func TestSessionToken(t *testing.T) {
 
 func TestLoginRejectsOversizedPasswordBeforeRepository(t *testing.T) {
 	service := &Service{}
-	_, err := service.Login(context.Background(), "demo-user", strings.Repeat("x", 129))
+	_, err := service.Login(context.Background(), "avatar01", strings.Repeat("x", 129))
 	if !errors.Is(err, domain.ErrUnauthorized) {
 		t.Fatalf("oversized password error=%v, want unauthorized", err)
 	}

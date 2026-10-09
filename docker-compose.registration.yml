@@ -1,0 +1,12 @@
+# Optional overlay, after docker-compose.prod.yml. The API key stays in a file.
+services:
+  app:
+    environment:
+      BREVO_API_KEY: ""
+      BREVO_API_KEY_FILE: /run/secrets/brevo_api_key
+    secrets:
+      - brevo_api_key
+
+secrets:
+  brevo_api_key:
+    file: ./secrets/brevo_api_key

@@ -1,0 +1,81 @@
+# Replace avatar.example.com everywhere before enabling this file.
+# The application remains available only on 127.0.0.1:8080.
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name avatar.example.com;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type text/plain;
+    }
+
+    location / {
+        return 301 https://avatar.example.com$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    # AVATAR_HTTP2_DIRECTIVE
+    server_name avatar.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/avatar.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/avatar.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:AVATAR_TLS:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    server_tokens off;
+    client_max_body_size 52m;
+    client_body_timeout 120s;
+    client_header_timeout 10s;
+    keepalive_timeout 30s;
+    send_timeout 120s;
+
+    # Project/task API responses are text-heavy and compress well on mobile
+    # connections. Files downloaded from /api/work/attachments are not among
+    # these MIME types and remain uncompressed.
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types application/json;
+
+    # Do not duplicate CSP/HSTS here: the Go application emits the canonical
+    # security headers. Duplicated policies are easy to misconfigure.
+    location = /api/auth/login {
+        limit_req zone=avatar_login burst=10 nodelay;
+        limit_req_status 429;
+        # Set every forwarded header explicitly. Do not include a distro
+        # proxy_params file here: it may append an attacker-supplied XFF value.
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        # Overwrite, do not append attacker-controlled X-Forwarded-For.
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Connection "";
+        proxy_connect_timeout 5s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+        proxy_pass http://127.0.0.1:8080;
+    }
+
+    location / {
+        # Set every forwarded header explicitly. Do not include a distro
+        # proxy_params file here: it may append an attacker-supplied XFF value.
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Connection "";
+        proxy_connect_timeout 5s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+        proxy_pass http://127.0.0.1:8080;
+    }
+}

@@ -3,16 +3,48 @@ package httpapi
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"avatar-id/internal/domain"
 )
+
+func TestSessionCookieUsesSevenDayIdleTimeout(t *testing.T) {
+	server := &Server{}
+	response := httptest.NewRecorder()
+	expires := time.Date(2026, time.September, 1, 12, 0, 0, 0, time.UTC)
+	server.setSessionCookie(response, "token", expires.Format(time.RFC3339))
+
+	cookies := response.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("cookies=%d, want 1", len(cookies))
+	}
+	if cookies[0].MaxAge != int(domain.AuthSessionIdleTimeout/time.Second) {
+		t.Fatalf("cookie max age=%d, want %d", cookies[0].MaxAge, int(domain.AuthSessionIdleTimeout/time.Second))
+	}
+	if !cookies[0].Expires.Equal(expires) {
+		t.Fatalf("cookie expiry=%s, want %s", cookies[0].Expires, expires)
+	}
+}
+
+func TestWorkInviteTokenIsKeptOutOfRequestTarget(t *testing.T) {
+	const token = "secret-invite-token"
+	parsed, err := url.Parse(workInviteURL("https://avatar.example.com", token))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.RawQuery != "" || parsed.Fragment != "work_invite="+token {
+		t.Fatalf("invite URL leaked token into request target: %q", parsed.String())
+	}
+}
 
 func TestSafeReturnTo(t *testing.T) {
 	valid := map[string]string{
-		"/":                     "/",
-		"/profile?tab=ticktick": "/profile?tab=ticktick",
+		"/":                         "/",
+		"/profile?tab=integrations": "/profile?tab=integrations",
 	}
 	for input, expected := range valid {
 		if got := safeReturnTo(input); got != expected {
@@ -31,7 +63,7 @@ func TestSafeReturnTo(t *testing.T) {
 }
 
 func TestCSRFMiddleware(t *testing.T) {
-	server := &Server{config: Config{PublicURL: "https://identity.example.com"}, publicOrigin: "https://identity.example.com"}
+	server := &Server{config: Config{PublicURL: "https://avatar.example.com"}, publicOrigin: "https://avatar.example.com"}
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	handler := server.csrf(next)
 
@@ -41,13 +73,13 @@ func TestCSRFMiddleware(t *testing.T) {
 		marker string
 		want   int
 	}{
-		{"same origin", "https://identity.example.com", "1", http.StatusNoContent},
+		{"same origin", "https://avatar.example.com", "1", http.StatusNoContent},
 		{"wrong origin", "https://evil.example", "1", http.StatusForbidden},
-		{"missing marker", "https://identity.example.com", "", http.StatusForbidden},
+		{"missing marker", "https://avatar.example.com", "", http.StatusForbidden},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodPost, "https://identity.example.com/api/tasks", strings.NewReader("{}"))
+			req := httptest.NewRequest(http.MethodPost, "https://avatar.example.com/api/tasks", strings.NewReader("{}"))
 			req.Header.Set("Origin", test.origin)
 			if test.marker != "" {
 				req.Header.Set(requestMarkerHeader, test.marker)
@@ -64,7 +96,7 @@ func TestCSRFMiddleware(t *testing.T) {
 func TestProductionCORSNeverUsesWildcardCredentials(t *testing.T) {
 	server := &Server{config: Config{CORSOrigin: "*", Production: true}}
 	handler := server.cors(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
-	req := httptest.NewRequest(http.MethodGet, "https://identity.example.com/api/state", nil)
+	req := httptest.NewRequest(http.MethodGet, "https://avatar.example.com/api/state", nil)
 	req.Header.Set("Origin", "https://evil.example")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, req)
@@ -77,16 +109,20 @@ func TestSecurityHeaders(t *testing.T) {
 	server := &Server{config: Config{Production: true}}
 	handler := server.securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "https://identity.example.com/api/state", nil))
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "https://avatar.example.com/api/state", nil))
 	for _, header := range []string{"Content-Security-Policy", "Strict-Transport-Security", "X-Content-Type-Options", "X-Frame-Options", "Cache-Control"} {
 		if response.Header().Get(header) == "" {
 			t.Fatalf("missing %s", header)
 		}
 	}
+	policy := response.Header().Get("Permissions-Policy")
+	if !strings.Contains(policy, "camera=(self)") || !strings.Contains(policy, "microphone=()") {
+		t.Fatalf("unexpected camera permissions policy: %q", policy)
+	}
 }
 
 func TestClientIPBehindTrustedProxy(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "https://identity.example.com/", nil)
+	req := httptest.NewRequest(http.MethodGet, "https://avatar.example.com/", nil)
 	req.RemoteAddr = "127.0.0.1:12345"
 	req.Header.Set("X-Real-IP", "203.0.113.10")
 	req.Header.Set("X-Forwarded-For", "198.51.100.7, 203.0.113.11")
@@ -127,7 +163,7 @@ func TestLoginLimiterIsMemoryBounded(t *testing.T) {
 }
 
 func FuzzSafeReturnTo(f *testing.F) {
-	for _, seed := range []string{"/", "/profile?tab=ticktick", "//evil.example", "/%2e%2e/admin", "javascript:alert(1)", "\\\\evil"} {
+	for _, seed := range []string{"/", "/profile?tab=integrations", "//evil.example", "/%2e%2e/admin", "javascript:alert(1)", "\\\\evil"} {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, input string) {
@@ -149,28 +185,4 @@ func TestValidRequestID(t *testing.T) {
 			t.Fatalf("unsafe request ID accepted: %q", value)
 		}
 	}
-}
-
-func TestUserActionGuardBlocksConcurrentAndRapidRequests(t *testing.T) {
-	guard := newUserActionGuard(50 * time.Millisecond)
-	release, _, ok := guard.begin(7)
-	if !ok {
-		t.Fatal("first request was rejected")
-	}
-	if _, _, ok := guard.begin(7); ok {
-		t.Fatal("concurrent request was accepted")
-	}
-	if _, _, ok := guard.begin(8); !ok {
-		t.Fatal("different user was incorrectly blocked")
-	}
-	release()
-	if _, retry, ok := guard.begin(7); ok || retry <= 0 {
-		t.Fatalf("cooldown was not enforced: ok=%t retry=%s", ok, retry)
-	}
-	time.Sleep(60 * time.Millisecond)
-	releaseAgain, _, ok := guard.begin(7)
-	if !ok {
-		t.Fatal("request remained blocked after cooldown")
-	}
-	releaseAgain()
 }

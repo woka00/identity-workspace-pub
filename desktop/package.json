@@ -1,0 +1,55 @@
+{
+  "name": "identity-workspace-desktop",
+  "productName": "identity workspace",
+  "desktopName": "identity-workspace.desktop",
+  "version": "0.2.3",
+  "private": true,
+  "description": "Desktop client for identity workspace",
+  "author": "identity workspace",
+  "homepage": "https://github.com/woka00/identity-workspace-pub",
+  "license": "UNLICENSED",
+  "main": "main.cjs",
+  "engines": { "node": ">=22.12.0" },
+  "scripts": {
+    "start": "electron .",
+    "check": "node --check main.cjs && node --check window-controls.cjs && node --check controls/preload.cjs && node --test test/*.test.cjs",
+    "pack": "electron-builder --dir --publish never",
+    "dist:linux": "electron-builder --linux --publish never",
+    "dist:mac": "electron-builder --mac --publish never",
+    "dist:win": "electron-builder --win --publish never"
+  },
+  "devDependencies": {
+    "electron": "44.3.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "app.identityworkspace.desktop",
+    "directories": { "output": "dist" },
+    "files": ["main.cjs", "policy.cjs", "window-controls.cjs", "controls/**"],
+    "extraResources": [{ "from": "assets/icon.png", "to": "icon.png" }],
+    "icon": "assets/icon.png",
+    "artifactName": "identity-workspace-${version}-${os}-${arch}.${ext}",
+    "linux": {
+      "target": ["deb", "AppImage"],
+      "category": "Office",
+      "maintainer": "identity workspace",
+      "executableName": "identity-workspace",
+      "syncDesktopName": true
+    },
+    "mac": {
+      "target": ["dmg", "zip"],
+      "category": "public.app-category.productivity",
+      "extendInfo": { "NSCameraUsageDescription": "Камера используется для сканирования штрихкодов продуктов." }
+    },
+    "win": { "target": ["nsis"] },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}

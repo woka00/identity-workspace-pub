@@ -1,0 +1,17 @@
+.profileTheme { display: grid; gap: 14px; border: 1px solid var(--line); border-radius: 20px; padding: 16px; background: var(--tile-soft); }
+.profileThemeHeading { display: grid; gap: 4px; }
+.profileThemeHeading strong { color: var(--ink); font-size: 14px; }
+.profileThemeHeading small, .profileThemeSchedule p { margin: 0; color: var(--gray); font-size: 10px; line-height: 1.5; }
+.profileThemeModes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; border-radius: var(--control-radius); padding: 4px; background: var(--tile-strong); }
+.profileThemeModes button { display: grid; min-width: 0; min-height: 48px; grid-template-columns: 10px minmax(0, auto); place-content: center; align-items: center; gap: 6px; border: 0; border-radius: 12px; padding: 8px 6px; background: transparent; color: var(--ink); font: inherit; font-size: 11px; cursor: pointer; }
+.profileThemeModeSwatch { width: 9px; height: 9px; border: 1px solid rgba(60, 60, 67, .18); border-radius: 50%; background: #f5f5f2; box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .55); }
+.profileThemeModes button[data-theme-mode="dark"] .profileThemeModeSwatch { background: #070709; box-shadow: none; }
+.profileThemeModes button[data-theme-mode="apple"] .profileThemeModeSwatch { border-color: #007aff; background: #007aff; box-shadow: 0 0 0 2px rgba(0, 122, 255, .16); }
+.profileThemeModes button[data-theme-mode="scheduled"] .profileThemeModeSwatch { background: linear-gradient(135deg, #f5f5f2 0 50%, #070709 50%); box-shadow: none; }
+.profileThemeModes button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+.profileThemeModes button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.profileThemeSchedule { display: grid; gap: 12px; }
+.profileThemeTimes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.profileThemeTimes .field, .profileThemeTimes .input { min-width: 0; }
+.profileThemeSchedule .formError { color: var(--stamp); }
+@media (max-width: 520px) { .profileThemeModes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

@@ -12,13 +12,14 @@ self.addEventListener("push", (event) => {
   const title = typeof payload.title === "string" && payload.title ? payload.title : "identity workspace";
   const body = typeof payload.body === "string" ? payload.body : "Пора выполнить задачу";
   const url = typeof payload.url === "string" && payload.url.startsWith("/") ? payload.url : "/?view=tasks";
-  const tag = typeof payload.tag === "string" && payload.tag ? payload.tag : "identity-workspace-reminder";
+  const tag = typeof payload.tag === "string" && payload.tag ? payload.tag : "avatar-id-reminder";
+  const renotify = payload.renotify === true;
   event.waitUntil(self.registration.showNotification(title, {
     body,
     icon: "/identity-workspace-icon-192-v2.png",
     badge: "/identity-workspace-icon-192-v2.png",
     tag,
-    renotify: false,
+    renotify,
     data: { url },
   }));
 });

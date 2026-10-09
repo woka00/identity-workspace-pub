@@ -14,7 +14,7 @@ import (
 	"sort"
 	"strconv"
 
-	"identity-workspace/internal/domain"
+	"avatar-id/internal/domain"
 )
 
 //go:embed migrations/*.sql
@@ -33,6 +33,8 @@ func New(db *sql.DB, ciphers ...*SecretCipher) *Repository {
 	return &Repository{db: db, secretCipher: secretCipher}
 }
 
+func (s *Repository) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }
+
 func (s *Repository) Migrate(ctx context.Context) error {
 	// A dedicated connection is required because PostgreSQL advisory locks are
 	// connection-scoped. This prevents two replicas from applying the same
@@ -43,7 +45,7 @@ func (s *Repository) Migrate(ctx context.Context) error {
 	}
 	defer conn.Close()
 
-	const migrationLockID int64 = 0x4944454E54495459 // "IDENTITY"
+	const migrationLockID int64 = 0x4156415441524944 // "AVATARID"
 	if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock($1)`, migrationLockID); err != nil {
 		return fmt.Errorf("acquire migration lock: %w", err)
 	}
@@ -125,14 +127,39 @@ func (s *Repository) Profile(ctx context.Context) (domain.Profile, error) {
 	}
 	var p domain.Profile
 	err = s.db.QueryRowContext(ctx, `
-		SELECT name, surname, occupation, sex, dob, expiry, photo, signature
+		SELECT name, surname, occupation, sex, dob, expiry, photo, signature,
+		       work_display_name, work_avatar, work_show_avatar
 		FROM user_profiles WHERE user_id=$1`, userID).Scan(
 		&p.Name, &p.Surname, &p.Occupation, &p.Sex, &p.DOB, &p.Expiry, &p.Photo, &p.Signature,
+		&p.WorkDisplayName, &p.WorkAvatar, &p.WorkShowAvatar,
 	)
 	if err == sql.ErrNoRows {
 		return domain.Profile{}, fmt.Errorf("profile: %w", domain.ErrNotFound)
 	}
 	return p, err
+}
+
+func (s *Repository) UpdateWorkProfile(ctx context.Context, input domain.WorkProfileInput) error {
+	userID, err := currentUserID(ctx)
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE user_profiles SET work_display_name=$2,work_avatar=$3,work_show_avatar=$4 WHERE user_id=$1`, userID, input.DisplayName, input.Avatar, input.ShowAvatar)
+	if err != nil {
+		return err
+	}
+	if changed, _ := result.RowsAffected(); changed == 0 {
+		return fmt.Errorf("profile: %w", domain.ErrNotFound)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE work_projects SET content_revision=content_revision+1 WHERE id IN (SELECT project_id FROM work_project_members WHERE user_id=$1)`, userID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Repository) UpdateProfile(ctx context.Context, p domain.Profile) error {
@@ -164,8 +191,18 @@ func (s *Repository) SetPhoto(ctx context.Context, dataURL string) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `UPDATE user_profiles SET photo=$2 WHERE user_id=$1`, userID, dataURL)
-	return err
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `UPDATE user_profiles SET photo=$2 WHERE user_id=$1`, userID, dataURL); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE work_projects SET content_revision=content_revision+1 WHERE id IN (SELECT project_id FROM work_project_members WHERE user_id=$1)`, userID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Repository) SetSignature(ctx context.Context, dataURL string) error {
@@ -175,6 +212,52 @@ func (s *Repository) SetSignature(ctx context.Context, dataURL string) error {
 	}
 	_, err = s.db.ExecContext(ctx, `UPDATE user_profiles SET signature=$2 WHERE user_id=$1`, userID, dataURL)
 	return err
+}
+
+func (s *Repository) BottomNavigation(ctx context.Context) ([]string, error) {
+	userID, err := currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var raw []byte
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT bottom_navigation FROM user_profiles WHERE user_id=$1`, userID,
+	).Scan(&raw); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("profile: %w", domain.ErrNotFound)
+		}
+		return nil, err
+	}
+	var items []string
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil, fmt.Errorf("decode bottom navigation: %w", err)
+	}
+	return items, nil
+}
+
+func (s *Repository) UpdateBottomNavigation(ctx context.Context, items []string) error {
+	userID, err := currentUserID(ctx)
+	if err != nil {
+		return err
+	}
+	raw, err := json.Marshal(items)
+	if err != nil {
+		return err
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE user_profiles SET bottom_navigation=$2::jsonb WHERE user_id=$1`, userID, string(raw),
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return fmt.Errorf("profile: %w", domain.ErrNotFound)
+	}
+	return nil
 }
 
 // ---------- показатели ----------
@@ -202,8 +285,9 @@ func (s *Repository) Trackers(ctx context.Context) (domain.TrackerState, error) 
 		CustomHistory: []domain.CustomTrackerEntry{},
 	}
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT water_goal, calorie_goal FROM user_tracker_settings WHERE user_id=$1`, userID,
-	).Scan(&out.WaterGoal, &out.CalorieGoal); err != nil {
+		`SELECT water_goal, calorie_goal, protein_goal, fat_goal, carbohydrate_goal
+		 FROM user_tracker_settings WHERE user_id=$1`, userID,
+	).Scan(&out.WaterGoal, &out.CalorieGoal, &out.ProteinGoal, &out.FatGoal, &out.CarbohydrateGoal); err != nil {
 		return domain.TrackerState{}, err
 	}
 
@@ -281,17 +365,23 @@ func (s *Repository) Trackers(ctx context.Context) (domain.TrackerState, error) 
 	return out, customRows.Err()
 }
 
-func (s *Repository) UpdateCalorieGoal(ctx context.Context, calorieGoal int) (int, error) {
+func (s *Repository) UpdateNutritionGoals(ctx context.Context, goals domain.NutritionGoals) (domain.NutritionGoals, error) {
 	userID, err := currentUserID(ctx)
 	if err != nil {
-		return 0, err
+		return domain.NutritionGoals{}, err
 	}
-	var saved int
+	var saved domain.NutritionGoals
 	err = s.db.QueryRowContext(ctx, `
-		INSERT INTO user_tracker_settings (user_id, calorie_goal)
-		VALUES ($1, $2)
-		ON CONFLICT (user_id) DO UPDATE SET calorie_goal=EXCLUDED.calorie_goal
-		RETURNING calorie_goal`, userID, calorieGoal).Scan(&saved)
+		INSERT INTO user_tracker_settings (user_id, calorie_goal, protein_goal, fat_goal, carbohydrate_goal)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (user_id) DO UPDATE SET
+			calorie_goal=EXCLUDED.calorie_goal,
+			protein_goal=EXCLUDED.protein_goal,
+			fat_goal=EXCLUDED.fat_goal,
+			carbohydrate_goal=EXCLUDED.carbohydrate_goal
+		RETURNING calorie_goal, protein_goal, fat_goal, carbohydrate_goal`,
+		userID, goals.CalorieGoal, goals.ProteinGoal, goals.FatGoal, goals.CarbohydrateGoal,
+	).Scan(&saved.CalorieGoal, &saved.ProteinGoal, &saved.FatGoal, &saved.CarbohydrateGoal)
 	return saved, err
 }
 
@@ -359,19 +449,43 @@ const taskSelect = `
 	       to_char(task.created_at, 'YYYY-MM-DD"T"HH24:MI:SSOF'),
 	       COALESCE(to_char(task.completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''),
 	       task.is_milestone,
-	       COALESCE(ticktick.sync_status, ''),
-	       COALESCE(ticktick.last_error, '')
-	FROM tasks AS task
-	LEFT JOIN user_ticktick_task_links AS ticktick
-	  ON ticktick.task_id=task.id AND ticktick.user_id=task.user_id`
+	       task.recurrence_type,
+	       task.recurrence_interval,
+	       COALESCE(to_char(task.recurrence_end_date, 'YYYY-MM-DD'), ''),
+	       task.recurrence_weekdays,
+	       task.sort_order
+	FROM tasks AS task`
 
 func scanTask(row interface{ Scan(...any) error }) (domain.Task, error) {
 	var t domain.Task
+	var recurrenceWeekdays int
 	err := row.Scan(&t.ID, &t.Title, &t.Description, &t.Category, &t.Status,
 		&t.DueDate, &t.DueTime, &t.ReminderAt, &t.ReminderSentAt, &t.Priority,
 		&t.CreatedAt, &t.CompletedAt, &t.IsMilestone,
-		&t.TickTickSyncStatus, &t.TickTickSyncError)
+		&t.RecurrenceType, &t.RecurrenceInterval, &t.RecurrenceEndDate,
+		&recurrenceWeekdays, &t.SortOrder)
+	t.RecurrenceWeekdays = recurrenceWeekdaysFromMask(recurrenceWeekdays)
 	return t, err
+}
+
+func recurrenceWeekdaysMask(weekdays []int) int {
+	mask := 0
+	for _, weekday := range weekdays {
+		if weekday >= 1 && weekday <= 7 {
+			mask |= 1 << (weekday - 1)
+		}
+	}
+	return mask
+}
+
+func recurrenceWeekdaysFromMask(mask int) []int {
+	weekdays := make([]int, 0, 7)
+	for weekday := 1; weekday <= 7; weekday++ {
+		if mask&(1<<(weekday-1)) != 0 {
+			weekdays = append(weekdays, weekday)
+		}
+	}
+	return weekdays
 }
 
 func (s *Repository) Tasks(ctx context.Context) ([]domain.Task, error) {
@@ -426,14 +540,21 @@ func (s *Repository) CreateTask(ctx context.Context, in domain.TaskInput) (domai
 	if err != nil {
 		return domain.Task{}, err
 	}
-	row := s.db.QueryRowContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	defer tx.Rollback()
+	row := tx.QueryRowContext(ctx, `
 		INSERT INTO tasks (
 			user_id, title, description, category, status, due_date, due_time,
-			reminder_at, reminder_sent_at, completed_at, priority, is_milestone
+			reminder_at, reminder_sent_at, completed_at, priority, is_milestone,
+			recurrence_type, recurrence_interval, recurrence_end_date, recurrence_weekdays, sort_order
 		)
 		VALUES (
 			$1, $2, $3, $4, 'todo', NULLIF($5, '')::date, NULLIF($6, '')::time,
-			NULLIF($7, '')::timestamptz, NULL, NULL, $8, $9
+			NULLIF($7, '')::timestamptz, NULL, NULL, $8, $9, $10, $11, NULLIF($12, '')::date, $13,
+			COALESCE((SELECT MAX(sort_order) + 1 FROM tasks WHERE user_id=$1 AND due_date IS NOT DISTINCT FROM NULLIF($5, '')::date AND status='todo'), 1)
 		)
 		RETURNING id, title, description, category, status,
 		          COALESCE(to_char(due_date, 'YYYY-MM-DD'), ''),
@@ -441,11 +562,74 @@ func (s *Repository) CreateTask(ctx context.Context, in domain.TaskInput) (domai
 		          COALESCE(to_char(reminder_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''),
 		          '', priority,
 		          to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SSOF'),
-		          '', is_milestone, '', ''`,
+		          '', is_milestone, recurrence_type, recurrence_interval,
+		          COALESCE(to_char(recurrence_end_date, 'YYYY-MM-DD'), ''), recurrence_weekdays, sort_order`,
 		userID, in.Title, in.Description, in.Category, in.DueDate, in.DueTime,
-		in.ReminderAt, in.Priority, in.IsMilestone,
+		in.ReminderAt, in.Priority, in.IsMilestone, in.RecurrenceType,
+		in.RecurrenceInterval, in.RecurrenceEndDate, recurrenceWeekdaysMask(in.RecurrenceWeekdays),
 	)
-	return scanTask(row)
+	task, err := scanTask(row)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	for _, projectID := range in.ProjectIDs {
+		result, updateErr := tx.ExecContext(ctx, `
+			UPDATE goals
+			SET related_task_ids=CASE
+			        WHEN related_task_ids ? $3::text THEN related_task_ids
+			        ELSE related_task_ids || jsonb_build_array($3::text)
+			    END,
+			    updated_at=now()
+			WHERE id=$1 AND user_id=$2 AND completed_at IS NULL`, projectID, userID, task.ID)
+		if updateErr != nil {
+			return domain.Task{}, updateErr
+		}
+		affected, updateErr := result.RowsAffected()
+		if updateErr != nil {
+			return domain.Task{}, updateErr
+		}
+		if affected != 1 {
+			return domain.Task{}, fmt.Errorf("project %d is unavailable or completed: %w", projectID, domain.ErrConflict)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return domain.Task{}, err
+	}
+	return task, nil
+}
+
+func (s *Repository) CreateRecurringTask(ctx context.Context, sourceTaskID int64, in domain.TaskInput) (domain.Task, bool, error) {
+	userID, err := currentUserID(ctx)
+	if err != nil {
+		return domain.Task{}, false, err
+	}
+	var id int64
+	err = s.db.QueryRowContext(ctx, `
+		INSERT INTO tasks (
+			user_id, title, description, category, status, due_date, due_time,
+			reminder_at, priority, is_milestone, recurrence_type,
+			recurrence_interval, recurrence_end_date, recurrence_weekdays, generated_from_task_id, sort_order
+		)
+		SELECT $1, $3, $4, $5, 'todo', NULLIF($6, '')::date, NULLIF($7, '')::time,
+		       NULLIF($8, '')::timestamptz, $9, $10, $11, $12,
+		       NULLIF($13, '')::date, $14, source.id,
+		       COALESCE((SELECT MAX(sort_order) + 1 FROM tasks WHERE user_id=$1 AND due_date IS NOT DISTINCT FROM NULLIF($6, '')::date AND status='todo'), 1)
+		FROM tasks AS source
+		WHERE source.id=$2 AND source.user_id=$1
+		ON CONFLICT (user_id, generated_from_task_id)
+		WHERE generated_from_task_id IS NOT NULL DO NOTHING
+		RETURNING id`, userID, sourceTaskID, in.Title, in.Description, in.Category,
+		in.DueDate, in.DueTime, in.ReminderAt, in.Priority, in.IsMilestone,
+		in.RecurrenceType, in.RecurrenceInterval, in.RecurrenceEndDate,
+		recurrenceWeekdaysMask(in.RecurrenceWeekdays)).Scan(&id)
+	if err == sql.ErrNoRows {
+		return domain.Task{}, false, nil
+	}
+	if err != nil {
+		return domain.Task{}, false, err
+	}
+	task, err := scanTask(s.db.QueryRowContext(ctx, taskSelect+` WHERE task.id=$1 AND task.user_id=$2`, id, userID))
+	return task, err == nil, err
 }
 
 func (s *Repository) UpdateTask(ctx context.Context, id int64, in domain.TaskInput) (domain.Task, error) {
@@ -457,13 +641,22 @@ func (s *Repository) UpdateTask(ctx context.Context, id int64, in domain.TaskInp
 		UPDATE tasks
 		SET title=$3, description=$4, category=$5, status=$6,
 		    completed_at=CASE WHEN $6='done' THEN COALESCE(completed_at, now()) ELSE NULL END,
+		    sort_order=CASE
+		        WHEN due_date IS DISTINCT FROM NULLIF($7, '')::date OR (status='done' AND $6='todo')
+		        THEN COALESCE((SELECT MAX(other.sort_order) + 1 FROM tasks AS other WHERE other.user_id=$2 AND other.due_date IS NOT DISTINCT FROM NULLIF($7, '')::date AND other.status='todo' AND other.id<>$1), 1)
+		        ELSE sort_order
+		    END,
 		    due_date=NULLIF($7, '')::date,
 		    due_time=NULLIF($8, '')::time,
 		    reminder_at=NULLIF($9, '')::timestamptz,
 		    reminder_sent_at=CASE WHEN reminder_at IS DISTINCT FROM NULLIF($9, '')::timestamptz THEN NULL ELSE reminder_sent_at END,
 		    reminder_claimed_at=NULL,
 		    priority=$10,
-		    is_milestone=$11
+		    is_milestone=$11,
+		    recurrence_type=$12,
+		    recurrence_interval=$13,
+		    recurrence_end_date=NULLIF($14, '')::date,
+		    recurrence_weekdays=$15
 		WHERE id=$1 AND user_id=$2
 		RETURNING id, title, description, category, status,
 		          COALESCE(to_char(due_date, 'YYYY-MM-DD'), ''),
@@ -473,9 +666,11 @@ func (s *Repository) UpdateTask(ctx context.Context, id int64, in domain.TaskInp
 		          priority,
 		          to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SSOF'),
 		          COALESCE(to_char(completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''),
-		          is_milestone, '', ''`,
+		          is_milestone, recurrence_type, recurrence_interval,
+		          COALESCE(to_char(recurrence_end_date, 'YYYY-MM-DD'), ''), recurrence_weekdays, sort_order`,
 		id, userID, in.Title, in.Description, in.Category, in.Status, in.DueDate,
-		in.DueTime, in.ReminderAt, in.Priority, in.IsMilestone,
+		in.DueTime, in.ReminderAt, in.Priority, in.IsMilestone, in.RecurrenceType,
+		in.RecurrenceInterval, in.RecurrenceEndDate, recurrenceWeekdaysMask(in.RecurrenceWeekdays),
 	)
 	t, err := scanTask(row)
 	if err == sql.ErrNoRows {
@@ -497,6 +692,11 @@ func (s *Repository) SetTaskCompleted(ctx context.Context, id int64, completed b
 		UPDATE tasks
 		SET status=$3,
 		    completed_at=CASE WHEN $3='done' THEN COALESCE(completed_at, now()) ELSE NULL END,
+		    sort_order=CASE
+		        WHEN status='done' AND $3='todo'
+		        THEN COALESCE((SELECT MAX(other.sort_order) + 1 FROM tasks AS other WHERE other.user_id=$2 AND other.due_date IS NOT DISTINCT FROM tasks.due_date AND other.status='todo' AND other.id<>$1), 1)
+		        ELSE sort_order
+		    END,
 		    reminder_claimed_at=NULL
 		WHERE id=$1 AND user_id=$2
 		RETURNING id, title, description, category, status,
@@ -507,12 +707,66 @@ func (s *Repository) SetTaskCompleted(ctx context.Context, id int64, completed b
 		          priority,
 		          to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SSOF'),
 		          COALESCE(to_char(completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''),
-		          is_milestone, '', ''`, id, userID, status)
+		          is_milestone, recurrence_type, recurrence_interval,
+		          COALESCE(to_char(recurrence_end_date, 'YYYY-MM-DD'), ''), recurrence_weekdays, sort_order`, id, userID, status)
 	t, err := scanTask(row)
 	if err == sql.ErrNoRows {
 		return domain.Task{}, fmt.Errorf("task: %w", domain.ErrNotFound)
 	}
 	return t, err
+}
+
+func (s *Repository) SwapTaskOrder(ctx context.Context, id, otherID int64) error {
+	userID, err := currentUserID(ctx)
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id, sort_order, COALESCE(to_char(due_date, 'YYYY-MM-DD'), ''), status
+		FROM tasks
+		WHERE user_id=$1 AND id IN ($2, $3)
+		ORDER BY id
+		FOR UPDATE`, userID, id, otherID)
+	if err != nil {
+		return err
+	}
+	type position struct {
+		order  int64
+		date   string
+		status string
+	}
+	positions := make(map[int64]position, 2)
+	for rows.Next() {
+		var taskID int64
+		var value position
+		if err := rows.Scan(&taskID, &value.order, &value.date, &value.status); err != nil {
+			rows.Close()
+			return err
+		}
+		positions[taskID] = value
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	left, leftOK := positions[id]
+	right, rightOK := positions[otherID]
+	if !leftOK || !rightOK || left.status != "todo" || right.status != "todo" || left.date != right.date {
+		return fmt.Errorf("tasks must be active and belong to the same day: %w", domain.ErrConflict)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE tasks SET sort_order=$3 WHERE user_id=$1 AND id=$2`, userID, id, right.order); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE tasks SET sort_order=$3 WHERE user_id=$1 AND id=$2`, userID, otherID, left.order); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Repository) DeleteTask(ctx context.Context, id int64) error {
@@ -604,7 +858,7 @@ func (s *Repository) Goals(ctx context.Context) ([]domain.Goal, error) {
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, goalSelect+`
-		WHERE user_id=$1
+		WHERE user_id=$1 AND NOT EXISTS (SELECT 1 FROM work_projects wp WHERE wp.legacy_goal_id=goals.id)
 		ORDER BY sort_order ASC, id ASC`, userID)
 	if err != nil {
 		return nil, err
@@ -627,25 +881,55 @@ func (s *Repository) Portfolio(ctx context.Context) (domain.Portfolio, error) {
 		return domain.Portfolio{}, err
 	}
 	rows, err := s.db.QueryContext(ctx, goalSelect+`
-		WHERE user_id=$1 AND completed_at IS NOT NULL
-		ORDER BY completed_at DESC, id DESC`, userID)
+		WHERE user_id=$1 AND NOT EXISTS (SELECT 1 FROM work_projects wp WHERE wp.legacy_goal_id=goals.id)
+		ORDER BY CASE WHEN completed_at IS NULL THEN 0 ELSE 1 END,
+		         sort_order ASC, completed_at DESC, id DESC`, userID)
 	if err != nil {
 		return domain.Portfolio{}, err
 	}
 	defer rows.Close()
-	p := domain.Portfolio{Pinned: []domain.Goal{}, Completed: []domain.Goal{}}
+	p := domain.Portfolio{Pinned: []domain.Goal{}, Active: []domain.Goal{}, Completed: []domain.Goal{}}
 	for rows.Next() {
 		g, err := scanGoal(rows)
 		if err != nil {
 			return domain.Portfolio{}, err
 		}
-		p.Completed = append(p.Completed, g)
-		if g.Pinned {
+		if g.Completed {
+			p.Completed = append(p.Completed, g)
+		} else {
+			p.Active = append(p.Active, g)
+		}
+		if g.Completed && g.Pinned {
 			p.Pinned = append(p.Pinned, g)
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return domain.Portfolio{}, err
+	}
+	work, err := s.WorkProjects(ctx)
+	if err != nil {
+		return domain.Portfolio{}, err
+	}
+	for _, project := range work {
+		target := float64(project.TaskCount)
+		if target == 0 {
+			target = 1
+		}
+		goal := domain.Goal{
+			ID: -project.ID, Title: project.Title, Description: project.Description, Summary: project.Summary,
+			CurrentValue: float64(project.CompletedCount), TargetValue: target, Unit: "задач",
+			Deadline: project.Deadline, RelatedTaskIDs: []string{}, Completed: project.Completed,
+			CompletedAt: project.CompletedAt, Pinned: project.Pinned, CompletionPct: project.CompletionPct,
+			CreatedAt: project.CreatedAt, UpdatedAt: project.UpdatedAt,
+		}
+		if goal.Completed {
+			p.Completed = append(p.Completed, goal)
+		} else {
+			p.Active = append(p.Active, goal)
+		}
+		if goal.Completed && goal.Pinned {
+			p.Pinned = append(p.Pinned, goal)
+		}
 	}
 	sort.SliceStable(p.Pinned, func(i, j int) bool {
 		if p.Pinned[i].SortOrder == p.Pinned[j].SortOrder {

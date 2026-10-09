@@ -16,7 +16,7 @@ import (
 	"time"
 	"unicode"
 
-	"identity-workspace/internal/domain"
+	"avatar-id/internal/domain"
 )
 
 const (
@@ -24,7 +24,6 @@ const (
 	passwordSaltBytes  = 16
 	passwordKeyBytes   = 32
 	sessionTokenBytes  = 32
-	sessionLifetime    = 30 * 24 * time.Hour
 )
 
 func normalizeLogin(raw string) (string, string, error) {
@@ -39,12 +38,6 @@ func normalizeLogin(raw string) (string, string, error) {
 		return "", "", domain.InvalidInputError{Message: "логин может содержать буквы, цифры, точку, дефис и подчёркивание"}
 	}
 	return login, strings.ToLower(login), nil
-}
-
-// NormalizeLoginForAdmin validates a login and returns its normalized database form.
-func NormalizeLoginForAdmin(raw string) (string, error) {
-	_, normalized, err := normalizeLogin(raw)
-	return normalized, err
 }
 
 func validatePassword(password string) error {
@@ -128,7 +121,7 @@ var dummyHashOnce = struct {
 
 func dummyPasswordHash() string {
 	dummyHashOnce.Do(func() {
-		salt := []byte("identity-dummy-v1")
+		salt := []byte("avatar-id-dummy!")
 		key := pbkdf2SHA256([]byte("not-a-real-password"), salt, passwordIterations, passwordKeyBytes)
 		dummyHashOnce.value = fmt.Sprintf("pbkdf2-sha256$%d$%s$%s",
 			passwordIterations,
@@ -137,14 +130,6 @@ func dummyPasswordHash() string {
 		)
 	})
 	return dummyHashOnce.value
-}
-
-// HashPasswordForAdmin validates and hashes a password for the built-in admin CLI.
-func HashPasswordForAdmin(password string) (string, error) {
-	if err := validatePassword(password); err != nil {
-		return "", err
-	}
-	return hashPassword(password)
 }
 
 func newSessionToken() (string, string, error) {
@@ -202,7 +187,7 @@ func (s *Service) createSession(ctx context.Context, user domain.User) (domain.A
 	if err != nil {
 		return domain.AuthSession{}, err
 	}
-	expires := s.now().Add(sessionLifetime)
+	expires := s.now().Add(domain.AuthSessionIdleTimeout)
 	if err := s.repo.CreateSession(ctx, user.ID, tokenHash, expires); err != nil {
 		return domain.AuthSession{}, err
 	}

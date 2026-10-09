@@ -1,0 +1,5 @@
+# Install as /etc/nginx/conf.d/00-avatar-id-rate-limit.conf.
+# These directives belong in nginx's http{} context, not inside server{}.
+limit_req_zone $binary_remote_addr zone=avatar_login:10m rate=5r/m;
+proxy_headers_hash_max_size 1024;
+proxy_headers_hash_bucket_size 128;

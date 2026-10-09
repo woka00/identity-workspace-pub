@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"identity-workspace/internal/domain"
+	"avatar-id/internal/domain"
 )
 
 func TestNormalizeTaskDefaultsToTodo(t *testing.T) {
@@ -113,6 +113,23 @@ func TestValidateCalorieGoal(t *testing.T) {
 	}
 }
 
+func TestValidateNutritionGoals(t *testing.T) {
+	valid := domain.NutritionGoals{CalorieGoal: 2200, ProteinGoal: 120, FatGoal: 80, CarbohydrateGoal: 280}
+	if err := ValidateNutritionGoals(valid); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, invalid := range []domain.NutritionGoals{
+		{CalorieGoal: 499, ProteinGoal: 120, FatGoal: 80, CarbohydrateGoal: 280},
+		{CalorieGoal: 2200, ProteinGoal: 0, FatGoal: 80, CarbohydrateGoal: 280},
+		{CalorieGoal: 2200, ProteinGoal: 120, FatGoal: 1001, CarbohydrateGoal: 280},
+		{CalorieGoal: 2200, ProteinGoal: 120, FatGoal: 80, CarbohydrateGoal: 0},
+	} {
+		if err := ValidateNutritionGoals(invalid); err == nil {
+			t.Fatalf("expected error for %#v", invalid)
+		}
+	}
+}
+
 func TestNormalizeGoalRules(t *testing.T) {
 	_, err := NormalizeGoal(domain.GoalInput{Title: "Запуск", TargetValue: 1, Pinned: true})
 	if err == nil {
@@ -131,12 +148,34 @@ func TestNormalizeGoalRules(t *testing.T) {
 }
 
 func TestNormalizeProfile(t *testing.T) {
-	profile, err := NormalizeProfile(domain.Profile{Name: " michael ", Surname: " foster ", Occupation: "backend-developer"})
+	profile, err := NormalizeProfile(domain.Profile{Name: " michael ", Surname: " foster ", Occupation: "backend-developer", DOB: "15052006", Expiry: "01.01.2030"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if profile.Name != "MICHAEL" || profile.Surname != "FOSTER" || profile.Occupation != "BACKEND-DEVELOPER" {
+	if profile.Name != "MICHAEL" || profile.Surname != "FOSTER" || profile.Occupation != "BACKEND-DEVELOPER" || profile.DOB != "15.05.2006" || profile.Expiry != fixedCardExpiryDate {
 		t.Fatalf("unexpected profile: %#v", profile)
+	}
+}
+
+func TestNormalizeBottomNavigation(t *testing.T) {
+	items, err := NormalizeBottomNavigation([]string{"calories", "card", "profile"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 3 || items[0] != "calories" || items[2] != "profile" {
+		t.Fatalf("unexpected navigation items: %#v", items)
+	}
+	for _, invalid := range [][]string{
+		{"card"},
+		{"card", "tracker", "tracker", "profile"},
+		{"card", "tasks", "unknown", "profile"},
+		{"tasks", "projects", "calories", "profile"},
+		{"card", "tasks", "projects", "calories"},
+		{"card", "tasks", "projects", "tracker", "calories", "profile", "unknown"},
+	} {
+		if _, err := NormalizeBottomNavigation(invalid); err == nil {
+			t.Fatalf("expected invalid navigation order to fail: %#v", invalid)
+		}
 	}
 }
 
@@ -160,6 +199,51 @@ func TestNormalizeTaskPlanningFields(t *testing.T) {
 	}
 	if _, err := NormalizeTask(domain.TaskInput{Title: "Приоритет", Category: "Дом", Priority: 4}, true); err == nil {
 		t.Fatal("expected invalid priority to fail")
+	}
+}
+
+func TestNormalizeTaskProjects(t *testing.T) {
+	input, err := NormalizeTask(domain.TaskInput{
+		Title: "Задача проекта", DueDate: "2026-08-24", ProjectIDs: []int64{7, 3, 7},
+	}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(input.ProjectIDs) != 2 || input.ProjectIDs[0] != 7 || input.ProjectIDs[1] != 3 {
+		t.Fatalf("unexpected project ids: %#v", input.ProjectIDs)
+	}
+	if _, err := NormalizeTask(domain.TaskInput{Title: "Задача", DueDate: "2026-08-24", ProjectIDs: []int64{0}}, true); err == nil {
+		t.Fatal("expected invalid project id to fail")
+	}
+}
+
+func TestNormalizeTaskRecurrence(t *testing.T) {
+	input, err := NormalizeTask(domain.TaskInput{
+		Title: "  Зарядка  ", DueDate: "2026-08-13", RecurrenceType: " Weekly ",
+		RecurrenceInterval: 2, RecurrenceEndDate: "2026-12-31", RecurrenceWeekdays: []int{5, 1, 5},
+	}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if input.RecurrenceType != "weekly" || input.RecurrenceInterval != 2 || len(input.RecurrenceWeekdays) != 2 || input.RecurrenceWeekdays[0] != 1 || input.RecurrenceWeekdays[1] != 5 {
+		t.Fatalf("unexpected normalized recurrence: %#v", input)
+	}
+	defaultWeekday, err := NormalizeTask(domain.TaskInput{
+		Title: "По четвергам", DueDate: "2026-08-13", RecurrenceType: "weekly", RecurrenceInterval: 1,
+	}, true)
+	if err != nil || len(defaultWeekday.RecurrenceWeekdays) != 1 || defaultWeekday.RecurrenceWeekdays[0] != 4 {
+		t.Fatalf("expected due date weekday by default: %#v, %v", defaultWeekday, err)
+	}
+	if _, err := NormalizeTask(domain.TaskInput{
+		Title: "Без даты", Category: "Дом", RecurrenceType: "daily", RecurrenceInterval: 1,
+	}, true); err == nil {
+		t.Fatal("recurring task without a due date must be rejected")
+	}
+	if _, err := NormalizeTask(domain.TaskInput{
+		Title: "Неверный конец", DueDate: "2026-08-13", RecurrenceType: "monthly",
+		RecurrenceInterval: 1, RecurrenceEndDate: "2026-08-12",
+	}, true); err == nil {
+		t.Fatal("recurrence end date before due date must be rejected")
 	}
 }
 

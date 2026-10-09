@@ -1,0 +1,7 @@
+ALTER TABLE user_tracker_settings
+    ADD COLUMN IF NOT EXISTS protein_goal INTEGER NOT NULL DEFAULT 120
+        CHECK (protein_goal BETWEEN 1 AND 1000),
+    ADD COLUMN IF NOT EXISTS fat_goal INTEGER NOT NULL DEFAULT 90
+        CHECK (fat_goal BETWEEN 1 AND 1000),
+    ADD COLUMN IF NOT EXISTS carbohydrate_goal INTEGER NOT NULL DEFAULT 300
+        CHECK (carbohydrate_goal BETWEEN 1 AND 1000);

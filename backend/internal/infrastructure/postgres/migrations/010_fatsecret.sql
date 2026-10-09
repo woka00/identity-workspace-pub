@@ -1,4 +1,4 @@
--- FatSecret OAuth connection for the original single-user schema.
+-- FatSecret OAuth connection for the single local AVATAR.ID user.
 CREATE TABLE IF NOT EXISTS fatsecret_connection (
     id SMALLINT PRIMARY KEY CHECK (id = 1),
     oauth_token TEXT NOT NULL,

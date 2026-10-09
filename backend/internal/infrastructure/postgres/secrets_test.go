@@ -6,6 +6,23 @@ import (
 	"testing"
 )
 
+func TestEmailFingerprintUsesSeparateKeyedIndex(t *testing.T) {
+	a, err := testCipher(t, 'a').emailFingerprint("user@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := testCipher(t, 'b').emailFingerprint("user@example.com")
+	again, _ := testCipher(t, 'a').emailFingerprint("user@example.com")
+	other, _ := testCipher(t, 'a').emailFingerprint("other@example.com")
+	if len(a) != 64 || a != again || a == b || a == other {
+		t.Fatal("email index does not depend on both key and address")
+	}
+	var absent *SecretCipher
+	if _, err := absent.emailFingerprint("user@example.com"); err == nil {
+		t.Fatal("unkeyed email index accepted")
+	}
+}
+
 func testCipher(t *testing.T, fill byte) *SecretCipher {
 	t.Helper()
 	key := make([]byte, 32)
@@ -59,14 +76,14 @@ func TestSecretCipherRejectsTamperingAndWrongKey(t *testing.T) {
 
 func TestSecretCipherBindsCiphertextToPurpose(t *testing.T) {
 	cipher := testCipher(t, 0x44)
-	encrypted, err := cipher.EncryptFor("ticktick:connection:1:token", "account-one")
+	encrypted, err := cipher.EncryptFor("fatsecret:connection:1:token", "account-one")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := cipher.DecryptFor("ticktick:connection:2:token", encrypted); err == nil {
+	if _, err := cipher.DecryptFor("fatsecret:connection:2:token", encrypted); err == nil {
 		t.Fatal("ciphertext was accepted for a different user and purpose")
 	}
-	plain, err := cipher.DecryptFor("ticktick:connection:1:token", encrypted)
+	plain, err := cipher.DecryptFor("fatsecret:connection:1:token", encrypted)
 	if err != nil || plain != "account-one" {
 		t.Fatalf("correct purpose failed: %q, %v", plain, err)
 	}

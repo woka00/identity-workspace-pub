@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS user_ticktick_connections (
     user_id       BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     access_token  TEXT NOT NULL,
     project_id    TEXT NOT NULL,
-    project_name  TEXT NOT NULL DEFAULT 'identity workspace',
+    project_name  TEXT NOT NULL DEFAULT 'AVATAR.ID',
     connected_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
